@@ -11,13 +11,14 @@ import xarray as xr
 # from matplotlib.ticker import MaxNLocator
 
 
-def plot_traits(fns, ncols):
+def plot_traits(fns: list, ncols: int):
     """Plots trait maps for each of the given trait map images
 
     Args:
         fns (list): List of filenames of the trait maps
         ncols (int): Number of columns desired for subplots
     """
+    # Calculate number of rows based on number of columns provided
     if len(fns) >= ncols:
         nrows = math.ceil(len(fns) / ncols)
     else:
