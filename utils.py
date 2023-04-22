@@ -103,8 +103,6 @@ def aggregate_ic(
     Returns:
         ee.ImageCollection
     """
-    # Store CRS as it will be overwritten during the below operations
-    crs = ic.first().projection()
     start, end = ee.Date(ds), ee.Date(de)
     ddiff = end.difference(start, timeframe)
     length = ee.List.sequence(0, ddiff.subtract(1))  # => [0, 1, ..., 11]
@@ -137,7 +135,9 @@ def aggregate_ic(
         grouped_ic = ee.ImageCollection(grouped_ic)
         t = grouped_ic.get("system:time_start")
         mn = grouped_ic.reduce(ee.Reducer.mean()).set("system:time_start", t).rename(bn)
-        mn = mn.setDefaultProjection(crs)
+        # Reset the scale because GEE overwrites the scale of reduced images to 1deg for
+        # some reason...
+        mn = mn.setDefaultProjection(mn.projection(), scale=1000)
         return mn
 
     agg_ic = grouped_ic.map(reduce_mean)
@@ -197,3 +197,65 @@ def mask_clouds(
         return image_masked
 
     return ic.map(lambda image: mask_clouds_(image))
+
+
+def export_image(
+    image: ee.Image, filename: str, folder: str, projection: dict, scale: int
+):
+    """Export an image to Drive
+
+    Args:
+        image (ee.Image): Image to export
+        filename (str): Filename to be used as prefix of exported file and name of task
+        folder (str): Destination folder in Drive (does not accept nested directories)
+        projection (dict): Desired export projection (use getInfo() to get dict)
+        scale (int): Scale in meters
+    """
+    task_config = {
+        "fileNamePrefix": filename,
+        "folder": folder,
+        "crs": projection["crs"],
+        "crsTransform": projection["transform"],
+        "fileFormat": "GeoTIFF",
+        "formatOptions": {"cloudOptimized": True},
+        "maxPixels": 1e13,
+        "scale": scale,
+    }
+
+    task = ee.batch.Export.image.toDrive(image, filename, **task_config)
+    task.start()
+
+
+def export_collection(
+    collection: ee.ImageCollection,
+    folder: str,
+    projection: dict = None,
+    scale: int = None,
+):
+    """Export an ImageCollection to Drive
+
+    Args:
+        collection (ee.ImageCollection): ImageCollection to be exported
+        folder (str): Destination folder in Drive (does not accept nested directories)
+        projection (dict, optional): Desired export projection (use getInfo() to get
+        dict). Determined from first image in collection if not provided Defaults to
+        None.
+        scale (int, optional): Scale in meters. Scale determined from first image in
+        collection if not provided. Defaults to None.
+    """
+    num_images = int(collection.size().getInfo())
+    image_list = collection.toList(num_images)
+    prefix = collection.first().bandNames().getInfo()[0]
+
+    if not projection:
+        projection = collection.first().projection().getInfo()
+
+    if not scale:
+        scale = collection.first().projection().nominalScale().int().getInfo()
+
+    for i in range(num_images):
+        image = ee.Image(image_list.get(i))
+        date = image.get("system:time_start")
+        date_name = ee.Date(date).format("YYYY-MM-dd").getInfo()
+        out_name = f"{prefix}_{date_name}_{str(scale)}m"
+        export_image(image, out_name, folder, projection, scale)
