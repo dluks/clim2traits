@@ -1,8 +1,44 @@
 #!/usr/bin/env python3
+import logging
 import os
+import time
+from functools import wraps
 from multiprocessing import Pool
 
 from osgeo import gdal
+
+logging.basicConfig(
+    level=logging.INFO,
+    filename="get_soil_data.log",
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%d-%b-%y %H:%M:%S",
+)
+
+
+def retry(f):
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        max_tries = 5
+        for i in range(max_tries):
+            fn = os.path.basename(args[1])
+            try:
+                print(f"Processing {os.path.basename(fn)}... Attempt: {i+1}")
+                return f(*args, **kwargs)
+            except Exception as ex:
+                template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+                message = template.format(type(ex).__name__, ex.args)
+                print(message)
+                logging.warning(message)
+                time.sleep(5)
+                pass
+            if i == max_tries - 1:
+                logging.error(f"FAILED: {fn}")
+                if os.path.exists(args[1]):
+                    os.remove(args[1])
+                return print(f"FAILED: {fn}")
+
+    return wrapped
+
 
 kwargs = {
     "format": "GTiff",
@@ -55,12 +91,13 @@ for ds_name in ds_names:
         args.append((url, out_fn))
 
 
+@retry
 def warp(url, out_fn):
-    print(f"Processing {os.path.basename(out_fn)}...")
     gdal.Warp(out_fn, url, **kwargs)
-    print(f"Finished {os.path.basename(out_fn)}.")
+    print(f"SUCCESS: {os.path.basename(out_fn)}.")
+    logging.info(f"SUCCESS: {os.path.basename(out_fn)}.")
 
 
 if __name__ == "__main__":
-    with Pool(6) as pool:
+    with Pool() as pool:
         pool.starmap(warp, args)
