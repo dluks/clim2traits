@@ -18,7 +18,7 @@ logging.basicConfig(
 def retry(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
-        max_tries = 5
+        max_tries = 15
         for i in range(max_tries):
             fn = os.path.basename(args[1])
             try:
@@ -29,7 +29,7 @@ def retry(f):
                 message = template.format(type(ex).__name__, ex.args)
                 print(message)
                 logging.warning(message)
-                time.sleep(5)
+                time.sleep(60)
                 pass
             if i == max_tries - 1:
                 logging.error(f"FAILED: {fn}")
@@ -99,5 +99,5 @@ def warp(url, out_fn):
 
 
 if __name__ == "__main__":
-    with Pool() as pool:
+    with Pool(6) as pool:
         pool.starmap(warp, args)
