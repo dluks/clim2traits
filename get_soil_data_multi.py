@@ -2,7 +2,8 @@
 import logging
 import os
 import time
-from functools import wraps
+
+# from functools import wraps
 from multiprocessing import Pool
 
 from osgeo import gdal
@@ -15,29 +16,38 @@ logging.basicConfig(
 )
 
 
-def retry(f):
-    @wraps(f)
-    def wrapped(*args, **kwargs):
-        max_tries = 15
-        for i in range(max_tries):
-            fn = os.path.basename(args[1])
-            try:
-                print(f"Processing {os.path.basename(fn)}... Attempt: {i+1}")
-                return f(*args, **kwargs)
-            except Exception as ex:
-                template = "An exception of type {0} occurred. Arguments:\n{1!r}"
-                message = template.format(type(ex).__name__, ex.args)
-                print(message)
-                logging.warning(message)
-                time.sleep(60)
-                pass
-            if i == max_tries - 1:
-                logging.error(f"FAILED: {fn}")
-                if os.path.exists(args[1]):
-                    os.remove(args[1])
-                return print(f"FAILED: {fn}")
+class bcolors:
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
 
-    return wrapped
+
+# def retry(f):
+#     @wraps(f)
+#     def wrapped(*args, **kwargs):
+#         max_tries = 5
+#         for i in range(max_tries):
+#             fn = os.path.basename(args[1])
+#             try:
+#                 print(
+#                     f"{bcolors.OKBLUE}Processing {bcolors.BOLD}{os.path.basename(fn)}{bcolors.ENDC}{bcolors.OKBLUE}... Attempt: {bcolors.ENDC}{i+1}"
+#                 )
+#                 return f(*args, **kwargs)
+#             except Exception as ex:
+#                 template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+#                 message = template.format(type(ex).__name__, ex.args)
+#                 print(f"{bcolors.WARNING}{message}{bcolors.ENDC}")
+#                 logging.warning(message)
+#                 time.sleep(10)
+#                 pass
+
+#     return wrapped
 
 
 kwargs = {
@@ -91,13 +101,43 @@ for ds_name in ds_names:
         args.append((url, out_fn))
 
 
-@retry
+# @retry
 def warp(url, out_fn):
-    gdal.Warp(out_fn, url, **kwargs)
-    print(f"SUCCESS: {os.path.basename(out_fn)}.")
-    logging.info(f"SUCCESS: {os.path.basename(out_fn)}.")
+    base = os.path.basename(out_fn)
+    max_tries = 3
+    ds = None
+    for i in range(max_tries):
+        try:
+            print(
+                f"{bcolors.OKBLUE}Processing {bcolors.BOLD}{base}{bcolors.ENDC}{bcolors.OKBLUE}... Attempt: {bcolors.ENDC}{i+1}"
+            )
+            ds = gdal.Warp(out_fn, url, **kwargs)
+        except Exception as ex:
+            template = "An exception of type {0} occurred for {1}. Arguments:\n{2!r}"
+            message = template.format(type(ex).__name__, ex.args, base)
+            message = f"An exception of type {type(ex).__name__!r} occurred for {base}:\n{ex!s}"
+            print(f"{bcolors.WARNING}{message}{bcolors.ENDC}")
+            logging.warning(message)
+            time.sleep(10)
+            pass
+
+    print(f"ds type: {type(ds)!r}")
+
+    if ds is not None:
+        print(f"{bcolors.OKGREEN}SUCCESS: {base}.{bcolors.ENDC}")
+        logging.info(f"SUCCESS: {base}.")
+    else:
+        print(f"{bcolors.FAIL}FAILED: {base}{bcolors.ENDC}")
+        logging.error(f"FAILED: {base}")
+
+        if os.path.exists(out_fn):
+            os.remove(out_fn)
+
+    ds = None
 
 
 if __name__ == "__main__":
-    with Pool(6) as pool:
+    gdal.UseExceptions()
+
+    with Pool(12) as pool:
         pool.starmap(warp, args)
