@@ -2,15 +2,15 @@
 import logging
 import os
 import time
-
-# from functools import wraps
 from multiprocessing import Pool
 
 from osgeo import gdal
 
+RETRY_FAILED = True
+
 logging.basicConfig(
     level=logging.INFO,
-    filename="get_soil_data.log",
+    filename="retry_failed_soil_data.log",
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%d-%b-%y %H:%M:%S",
 )
@@ -64,31 +64,58 @@ kwargs = {
     ],
 }
 
-ds_names = [
-    "bdod",
-    "cec",
-    "cfvo",
-    "clay",
-    "nitrogen",
-    "ocd",
-    "ocs",
-    "phh2o",
-    "sand",
-    "silt",
-    "soc",
-]
-
-depths = ["0-5", "5-15", "15-30", "30-60", "60-100", "100-200"]
-
 out_base_dir = "./data/soil"
-curl_url = "/vsicurl?max_retry=3&retry_delay=5&list_dir=no&url="
+curl_url = "/vsicurl?max_retry=10&retry_delay=10&list_dir=no&url="
 base_url = "https://files.isric.org/soilgrids/latest/data/"
-# ds_url = "ocs/ocs_0-30cm_mean.vrt"
 
-args = []
-for ds_name in ds_names:
-    for depth in depths:
-        ds_full_label = f"{ds_name}_{depth}cm_mean"
+if not RETRY_FAILED:
+    ds_names = [
+        "bdod",
+        "cec",
+        "cfvo",
+        "clay",
+        "nitrogen",
+        "ocd",
+        "ocs",
+        "phh2o",
+        "sand",
+        "silt",
+        "soc",
+    ]
+
+    depths = ["0-5", "5-15", "15-30", "30-60", "60-100", "100-200"]
+
+    args = []
+    for ds_name in ds_names:
+        for depth in depths:
+            ds_full_label = f"{ds_name}_{depth}cm_mean"
+
+            out_dir = os.path.join(out_base_dir, ds_name)
+            if not os.path.exists(out_dir):
+                os.makedirs(out_dir)
+
+            out_fn = os.path.join(out_dir, f"{ds_full_label}_1000m.tif")
+
+            ds_url = f"{ds_name}/{ds_full_label}.vrt"
+            url = curl_url + base_url + ds_url
+            args.append((url, out_fn))
+else:
+    failed = [
+        "ocs_0-30cm_mean",
+        "cec_5-15cm_mean",
+        "cfvo_100-200cm_mean",
+        "sand_5-15cm_mean",
+        "sand_30-60cm_mean",
+        "sand_100-200cm_mean",
+        "soc_0-5cm_mean",
+        "soc_15-30cm_mean",
+        "ocd_100-200cm_mean",
+        "silt_0-5cm_mean",
+    ]
+
+    args = []
+    for ds_full_label in failed:
+        ds_name = ds_full_label.split("_")[0]
 
         out_dir = os.path.join(out_base_dir, ds_name)
         if not os.path.exists(out_dir):
@@ -104,7 +131,7 @@ for ds_name in ds_names:
 # @retry
 def warp(url, out_fn):
     base = os.path.basename(out_fn)
-    max_tries = 3
+    max_tries = 5
     ds = None
     for i in range(max_tries):
         try:
@@ -112,6 +139,7 @@ def warp(url, out_fn):
                 f"{bcolors.OKBLUE}Processing {bcolors.BOLD}{base}{bcolors.ENDC}{bcolors.OKBLUE}... Attempt: {bcolors.ENDC}{i+1}"
             )
             ds = gdal.Warp(out_fn, url, **kwargs)
+            break
         except Exception as ex:
             template = "An exception of type {0} occurred for {1}. Arguments:\n{2!r}"
             message = template.format(type(ex).__name__, ex.args, base)
@@ -120,8 +148,6 @@ def warp(url, out_fn):
             logging.warning(message)
             time.sleep(10)
             pass
-
-    print(f"ds type: {type(ds)!r}")
 
     if ds is not None:
         print(f"{bcolors.OKGREEN}SUCCESS: {base}.{bcolors.ENDC}")
@@ -134,10 +160,15 @@ def warp(url, out_fn):
             os.remove(out_fn)
 
     ds = None
+    return ds
 
 
 if __name__ == "__main__":
     gdal.UseExceptions()
 
-    with Pool(12) as pool:
-        pool.starmap(warp, args)
+    if not RETRY_FAILED:
+        with Pool(12) as pool:
+            pool.starmap(warp, args)
+    else:
+        for args_i in args:
+            warp(*args_i)
