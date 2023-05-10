@@ -6,11 +6,10 @@ import os
 # Configuration settings for 1-Preprocessing.ipynb
 class Config:
     def __init__(self):
-        # iNaturalist
-        self.iNat_dir = "./iNaturalist_traits/maps_iNaturalist"
-
-        # WorldClim
-        self.WC_dir = "./data/worldclim/bio/"
+        self.iNat_dir = "./iNaturalist_traits/maps_iNaturalist"  # iNaturalist
+        self.WC_dir = "./data/worldclim/bio/"  # WorldClim
+        self.MODIS_dir = "./data/modis"  # MODIS
+        self.soil_dir = "./data/soil"
 
     def iNat_fns(self, res: str = "0.5", transform: str = "ln") -> list:
         """Get list of iNaturalist trait map filenames by resolution and transformation
