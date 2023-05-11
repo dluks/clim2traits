@@ -112,3 +112,28 @@ def plot_traits(fns: list, ncols: int):
 
 #     # set title
 #     ax.set_title(variable + " " + dataset_name, size=14)
+
+
+def plot_rasterio(da: xr.DataArray, proj: ccrs.Projection = ccrs.PlateCarree):
+    """
+    Quick and dirty plot of a global rasterio data array
+
+    Args:
+        da (xr.DataArray): Rasterio data array to be plotted
+        proj (ccrs.Projection, optional): Desired projection. Defaults to
+        ccrs.PlateCarree.
+    """
+    fig, ax = plt.subplots(
+        figsize=(20, 15),
+        subplot_kw={"projection": proj()},
+        tight_layout=True,
+    )
+
+    lon = da.coords["x"].values
+    lat = da.coords["y"].values
+    title = da.name
+    ax.set_global()
+    ax.coastlines(resolution="110m", linewidth=0.5)
+    im = ax.contourf(lon, lat, np.squeeze(da), 50, transform=ccrs.PlateCarree())
+    fig.colorbar(im, ax=ax, orientation="vertical", shrink=0.5)
+    ax.set_title(title)

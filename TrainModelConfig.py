@@ -1,54 +1,32 @@
-import glob
-import itertools
-import os
+from utils.data_retrieval import get_fns
 
 
 # Configuration settings for 2-TrainModel.ipynb
-class Config:
+class TrainModelConfig:
     def __init__(self):
+        # Set to None if resolution should be separate for each dataset
+        MAIN_RES = "0.5_deg"
+
         # iNaturalist
         self.iNat_dir = "./iNaturalist_traits/maps_iNaturalist"
+        self.iNat_res = MAIN_RES or "0.5_deg"
+        self.iNat_transform = "ln"
+        self.iNat_fns = get_fns(
+            self.iNat_dir, self.iNat_res, "iNat", self.iNat_transform
+        )
 
         # WorldClim
         self.WC_dir = "./data/worldclim/bio/"
+        self.WC_res = MAIN_RES or "0.5_deg"
+        self.WC_bios = [1, 4, 7, 12, 13, 14, 15]
+        self.WC_fns = get_fns(self.WC_dir, self.WC_res, "wc", bios=self.WC_bios)
 
-    def iNat_fns(self, res: str = "0.5", transform: str = "ln") -> list:
-        """Get list of iNaturalist trait map filenames by resolution and transformation
+        # MODIS
+        self.MODIS_dir = "./data/modis/"
+        self.MODIS_res = MAIN_RES or "0.5_deg"
+        self.MODIS_fns = get_fns(self.MODIS_dir, self.MODIS_res, "modis")
 
-        Args:
-            res (str, optional): Resolution. Defaults to "0.5".
-            transform (str, optional): Transformation ("ln" or "exp_ln"). Defaults to
-            "ln".
-
-        Returns:
-            list: List of filenames
-        """
-        fns = glob.glob(os.path.join(self.iNat_dir, f"{res}_deg/{transform}", "*.tif"))
-        return fns
-
-    def WC_fns(self, bios: list = None) -> list:
-        """Get list of all WorldClim bio observation filenames. Takes a list of BIO
-        variables if desired.
-
-        Args:
-            vars (list, optional): List of BIO variables. Returns all if not provided.
-            Defaults to None.
-
-        Returns:
-            list: List of filenames
-        """
-
-        if not bios:
-            fns = glob.glob(os.path.join(self.WC_dir, "*.tif"))
-        else:
-            fns = list(
-                itertools.chain.from_iterable(
-                    [
-                        glob.glob(
-                            f"{self.WC_dir}/wc2.1_10m_bio_{b}.tif", recursive=True
-                        )
-                        for b in bios
-                    ]
-                )
-            )
-        return fns
+        # Soil
+        self.soil_dir = "./data/soil"
+        self.soil_res = MAIN_RES or "0.5_deg"
+        self.soil_fns = get_fns(self.soil_dir, self.soil_res, "soil")
