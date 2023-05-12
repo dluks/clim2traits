@@ -127,7 +127,7 @@ def mask_clouds(
 
 def export_image(
     image: ee.Image, filename: str, folder: str, projection: dict, scale: int
-):
+) -> None:
     """Export an image to Drive
 
     Args:
@@ -157,7 +157,7 @@ def export_collection(
     folder: str,
     projection: dict = None,
     scale: int = None,
-):
+) -> None:
     """Export an ImageCollection to Drive
 
     Args:
