@@ -1,0 +1,3 @@
+[submodule "lib/spacv-lusk"]
+	path = lib/spacv-lusk
+	url = git@github.com:dluks/spacv-lusk.git
