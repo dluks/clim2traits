@@ -2,8 +2,10 @@ import math
 import os
 
 import cartopy.crs as ccrs
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import spacv
 import xarray as xr
 
 # import pandas as pd
@@ -137,3 +139,21 @@ def plot_rasterio(da: xr.DataArray, proj: ccrs.Projection = ccrs.PlateCarree):
     im = ax.contourf(lon, lat, np.squeeze(da), 50, transform=ccrs.PlateCarree())
     fig.colorbar(im, ax=ax, orientation="vertical", shrink=0.5)
     ax.set_title(title)
+
+
+def plot_splits(skcv: spacv.SKCV, XYs: gpd.GeoSeries) -> None:
+    """Plot spatial CV test splits
+
+    Args:
+        skcv (spacv.SKCV): The Spatial K-fold cross validator to use
+        XYs (gpd.GeoSeries): XY geometries (coordinates)
+    """
+    _, ax = plt.subplots(subplot_kw={"projection": ccrs.Robinson()})
+    ax.coastlines(resolution="110m", linewidth=0.5)
+    ax.set_global()
+    ax.set_title(f"N splits: {len(list(skcv.split(XYs)))}")
+
+    for _, test in skcv.split(XYs):
+        lon = XYs.iloc[test].x.values
+        lat = XYs.iloc[test].y.values
+        ax.plot(lon, lat, ".", transform=ccrs.PlateCarree())

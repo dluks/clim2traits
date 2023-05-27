@@ -75,3 +75,17 @@ def resample_raster(
     )
 
     return resampled
+
+
+def print_shapes(
+    X: gpd.GeoDataFrame, Y: gpd.GeoDataFrame, rows_dropped: bool = True
+) -> None:
+    print("X shape:", X.shape)
+    print("Y shape:", Y.shape)
+
+    if rows_dropped:
+        rows = abs(Y.shape[0] - X.shape[0])
+        if rows == 0:
+            print("Rows match\n")
+        else:
+            print("Rows dropped:", rows, "\n")
