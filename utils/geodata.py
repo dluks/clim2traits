@@ -1,13 +1,18 @@
 ################################
 # Geodata utils
 ################################
+import multiprocessing
 import os
 from functools import reduce
-from typing import Union
+
+# from math import asin, cos, radians, sin, sqrt
+from typing import Tuple, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rioxarray as rx
+import skgstat as skg
 import xarray as xr
 from rasterio.enums import Resampling
 
@@ -89,3 +94,105 @@ def print_shapes(
             print("Rows match\n")
         else:
             print("Rows dropped:", rows, "\n")
+
+
+# def vgm_ranges(XYs: gpd.GeoSeries, X: gpd.GeoDataFrame) -> Tuple[np.ndarray, float]:
+#     """Calculates an spherical experimental variogram for each predictor in the data
+#     frame and returns their respective ranges as well as the median range.
+
+#     Args:
+#         XYs (gpd.GeoSeries): XY positions in WKT format
+#         X (gpd.GeoDataFrame): Data frame containing corresponding values
+
+#     Returns:
+#         Tuple[np.ndarray, float]: _description_
+#     """
+#     all_coords = np.asarray(list(map(lambda x: (x.x, x.y), XYs)))
+
+#     ranges = []
+
+#     for col in tqdm(X.values.T):
+#         coords = all_coords[~np.isnan(col)]
+#         values = col[~np.isnan(col)]
+#         V = skg.Variogram(coordinates=coords, values=values)
+#         ranges.append(V.parameters[0])
+
+#     ranges = np.asarray(ranges)
+#     med = np.median(ranges)
+
+#     return ranges, med
+
+
+def haversine(p1, p2):
+    # # my adaption to fit the function signature
+    # lat1, lon1 = p1
+    # lat2, lon2 = p2
+
+    # # original
+    # R = 6372.8  # Earth radius in kilometers
+
+    # dLat = radians(lat2 - lat1)
+    # dLon = radians(lon2 - lon1)
+    # lat1 = radians(lat1)
+    # lat2 = radians(lat2)
+
+    # a = sin(dLat / 2)**2 + cos(lat1) * cos(lat2) * sin(dLon / 2)**2
+    # c = 2 * asin(sqrt(a))
+
+    # return R * c
+
+    lat1, lon1 = p1
+    lat2, lon2 = p2
+
+    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+
+    c = 2 * np.arcsin(np.sqrt(a))
+    km = 6367 * c
+    return km
+
+
+def calculate_range(args):
+    coords, values = args
+    V = skg.Variogram(coordinates=coords, values=values, dist_func=haversine)
+    return V.parameters[0]
+
+
+def vgm_ranges(XYs: gpd.GeoSeries, X: gpd.GeoDataFrame) -> Tuple[np.ndarray, float]:
+    """Calculates a spherical experimental variogram for each predictor in the data
+    frame and returns their respective ranges as well as the median range.
+
+    Args:
+        XYs (gpd.GeoSeries): XY positions in WKT format
+        X (gpd.GeoDataFrame): Data frame containing corresponding values
+
+    Returns:
+        Tuple[np.ndarray, float]: Ranges of each variogram and the median range
+    """
+    all_coords = np.asarray(list(map(lambda x: (x.x, x.y), XYs)))
+
+    ranges = []
+
+    pool = multiprocessing.Pool()
+    results = []
+
+    for col in X.values.T:
+        coords = all_coords[~np.isnan(col)]
+        values = col[~np.isnan(col)]
+        args = (coords, values)
+        results.append(pool.apply_async(calculate_range, (args,)))
+
+    pool.close()
+    pool.join()
+
+    for result in results:
+        ranges.append(result.get())
+
+    ranges = np.asarray(ranges)
+    med = np.median(ranges)
+
+    return ranges, med
