@@ -30,3 +30,5 @@ class TrainModelConfig:
         self.soil_dir = "./data/soil"
         self.soil_res = MAIN_RES or "0.5_deg"
         self.soil_fns = get_fns(self.soil_dir, self.soil_res, "soil")
+        
+        self.SAVE_RANGES = False

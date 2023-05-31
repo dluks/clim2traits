@@ -156,4 +156,11 @@ def plot_splits(skcv: spacv.SKCV, XYs: gpd.GeoSeries) -> None:
     for _, test in skcv.split(XYs):
         lon = XYs.iloc[test].x.values
         lat = XYs.iloc[test].y.values
-        ax.plot(lon, lat, ".", transform=ccrs.PlateCarree())
+        ax.plot(
+            lon,
+            lat,
+            ".",
+            markersize="0.5",
+            alpha=1,
+            transform=ccrs.PlateCarree()
+        )
