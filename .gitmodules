@@ -1,0 +1,6 @@
+[submodule "lib/spacv-lusk"]
+	path = lib/spacv-lusk
+	url = git@github.com:dluks/spacv-lusk.git
+[submodule "iNaturalist_traits"]
+	path = iNaturalist_traits
+	url = https://github.com/dluks/iNaturalist_traits
