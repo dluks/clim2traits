@@ -1,3 +1,7 @@
+import os
+
+import numpy as np
+
 from utils.data_retrieval import get_fns
 
 
@@ -34,3 +38,18 @@ class TrainModelConfig:
         self.SAVE_AUTOCORRELATION_RANGES = False
 
         self.RNG_STATE = 100919
+
+        # Spatial CV
+        if os.path.exists("./ranges.npy"):
+            self.AUTOCORRELATION_RANGE = np.median(np.load("ranges.npy"))
+        else:
+            raise ValueError("Cannot locate autocorrelation ranges")
+
+        self.DEGREE = 111325  # Standard value for 1 degree in meters at the equator
+        UPPER_BOUND = np.round(self.DEGREE * 120)
+        STEP = np.round(UPPER_BOUND / 30)
+        self.BW = STEP // 2
+        self.LAGS = np.arange(0, UPPER_BOUND, STEP)
+
+        # Hyperparam tuning
+        self.ITERATIONS = 512
