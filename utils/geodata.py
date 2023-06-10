@@ -89,3 +89,59 @@ def print_shapes(
             print("Rows match\n")
         else:
             print("Rows dropped:", rows, "\n")
+
+
+def drop_XY_NAs(
+    XY: Union[gpd.GeoDataFrame, pd.DataFrame],
+    X_cols: pd.Index,
+    Y_cols: pd.Index,
+    verbose=False,
+) -> Union[gpd.GeoDataFrame, pd.DataFrame]:
+    """Drop all rows and columns that contain all NAs in either X (predictors) or Y
+    (response variables).
+
+    Args:
+        XY (Union[gpd.GeoDataFrame, pd.DataFrame]): Dataframe containing both X and Y
+        variables
+        X_cols (pd.Index): Index identifying the column(s)
+        containing the predictors
+        Y_cols (pd.Index): Index identifying the column(s)
+        containing the response variable(s)
+
+    Returns:
+        Union[gpd.GeoDataFrame, pd.DataFrame]: Original dataframe with full-NA rows/
+        columns in the X and Y spaces dropped.
+    """
+    if verbose:
+        shape_before = XY.shape
+        print(f"XY shape before dropping full-NA rows/cols: {shape_before}")
+    # Drop all rows that contain no response variable data at all
+    XY = XY.dropna(axis=0, subset=Y_cols, how="all")
+    # Drop all rows that contain no predictor data at all
+    XY = XY.dropna(axis=0, subset=X_cols, how="all")
+    # Drop all columns that contain no data at all
+    XY = XY.dropna(axis=1, how="all")
+
+    if verbose:
+        shape_after = XY.shape
+        rows_dropped = shape_before[0] - shape_after[0]
+        print(f"XY shape after:                             {shape_after}")
+        print(
+            f"# of rows excluded: {rows_dropped} ({(rows_dropped / shape_before[0]) * 100:.2f}%)"
+        )
+        dropped_X_cols = X_cols[~X_cols.isin(XY.columns)].values
+        dropped_Y_cols = Y_cols[~Y_cols.isin(XY.columns)].values
+        if len(dropped_X_cols) == 0 and len(dropped_Y_cols) == 0:
+            print("\n No columns were dropped.")
+        else:
+            print(
+                "\nEmpty columns:\nX:",
+                X_cols[~X_cols.isin(XY.columns)].values,
+                "\nY:",
+                Y_cols[~Y_cols.isin(XY.columns)].values,
+            )
+    # Update X_cols and Y_cols accordingly to account for any dropped columns
+    X_cols = X_cols[X_cols.isin(XY.columns)]
+    Y_cols = Y_cols[Y_cols.isin(XY.columns)]
+
+    return XY, X_cols, Y_cols
