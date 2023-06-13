@@ -51,5 +51,18 @@ class TrainModelConfig:
         self.BW = STEP // 2
         self.LAGS = np.arange(0, UPPER_BOUND, STEP)
 
+        # TRAINING
+        self.RESULTS_DIR = os.path.abspath("./results")
+        if not os.path.exists(self.RESULTS_DIR):
+            os.makedirs(self.RESULTS_DIR)
+
         # Hyperparam tuning
         self.ITERATIONS = 512
+        self.PARAM_OPT_RESULTS_DIR = os.path.join(self.RESULTS_DIR, "ray-results")
+        if not os.path.exists(self.PARAM_OPT_RESULTS_DIR):
+            os.makedirs(self.PARAM_OPT_RESULTS_DIR)
+
+        # Model training
+        self.MODEL_DIR = os.path.join(self.RESULTS_DIR, "training")
+        if not os.path.exists(self.MODEL_DIR):
+            os.makedirs(self.MODEL_DIR)
