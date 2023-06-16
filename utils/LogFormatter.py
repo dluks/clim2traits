@@ -29,7 +29,7 @@ class LevelFormatter(Formatter):
 def get_logger(name: str = None) -> logging.Logger:
     logger = getLogger(name)
     logger.setLevel(logging.INFO)
-    
+
     logger.handlers.clear()
 
     handler = StreamHandler()
