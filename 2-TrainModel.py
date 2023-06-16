@@ -7,18 +7,22 @@
 # %% [markdown]
 # ## Imports and configuration
 
-import os
-from datetime import datetime
-
 # %%
+
 import numpy as np
-import pandas as pd
+import spacv
 from spacv.visualisation import plot_autocorrelation_ranges
 
 from TrainModelConfig import TrainModelConfig
-from utils.data_retrieval import gdf_from_list
-from utils.geodata import drop_NAs, merge_gdfs
-from utils.training import run_training
+from utils.datasets import DataCollection, Dataset, MLCollection, Unit
+from utils.geodata import drop_XY_NAs
+from utils.visualize import plot_splits
+
+# NOTEBOOK = False
+
+# if NOTEBOOK:
+#     %load_ext autoreload
+#     %autoreload 2
 
 config = TrainModelConfig()
 
@@ -26,26 +30,44 @@ config = TrainModelConfig()
 # ## Load data
 
 # %%
-X_fns = config.WC_fns + config.MODIS_fns + config.soil_fns
-Y_fns = config.iNat_fns
+inat = Dataset(
+    res=0.5,
+    unit=Unit.DEGREE,
+    parent_dir=config.iNat_dir,
+    collection_name=config.iNat_name,
+    transform="ln",
+)
 
-X = gdf_from_list(X_fns)
-Y = gdf_from_list(Y_fns)
+wc = Dataset(
+    res=0.5,
+    unit=Unit.DEGREE,
+    parent_dir=config.WC_dir,
+    collection_name=config.WC_name,
+    bio_ids=config.WC_bio_ids,
+)
 
-# %% [markdown]
-# Compute Preciptation Annual Range by subtracting BIO14 from BIO13
+modis = Dataset(
+    res=0.5,
+    unit=Unit.DEGREE,
+    parent_dir=config.MODIS_dir,
+    collection_name=config.MODIS_name,
+)
 
-# %%
-bio_13 = X.loc[:, ["bio_13" in x for x in X.columns]].values
-bio_14 = X.loc[:, ["bio_14" in x for x in X.columns]].values
-X["wc2.1_10m_bio_13-14"] = bio_13 - bio_14
+soil = Dataset(
+    res=0.5,
+    unit=Unit.DEGREE,
+    parent_dir=config.soil_dir,
+    collection_name=config.soil_name,
+)
 
-# %% [markdown]
-# Drop the unnecessary `x`, `y`, `band` and `spatial_ref` columns.
+X = DataCollection([wc, modis, soil])
+Y = DataCollection([inat])
 
-# %%
-X = X.drop(columns=["x", "y", "band", "spatial_ref"])
-Y = Y.drop(columns=["x", "y", "band", "spatial_ref"])
+# Convert to MLCollection for training
+XY = MLCollection(X, Y)
+print("XY shape:", XY.df.shape)
+
+XY.drop_NAs(verbose=1)
 
 # %% [markdown]
 # ## XGBoost
@@ -56,34 +78,10 @@ Y = Y.drop(columns=["x", "y", "band", "spatial_ref"])
 #
 # 1) ~~Create a data frame where you have all response variables and predictors.~~
 # 2) ~~Remove cells where you do not have a value for ANY predictor/response variable (you still may have NA for some columns then).~~
-# 3) Train the models and do the evaluation
+# 3) ~~Train the models and do the evaluation~~
 # 4) Repeat step 3, but remove rows where you have at least one NA
 # 5) Compare accuracies of step 3 and 4 and see what´s best.
 # </div>
-
-# %% [markdown]
-# ### Combine GDFs and clean up nodata
-
-# %% [markdown]
-# Get column names for easier predictor/response variable selection.
-
-# %%
-X_cols = X.columns.difference(["geometry"])
-Y_cols = Y.columns.difference(["geometry"])
-
-# %% [markdown]
-# Merge X and Y GDFs
-
-# %%
-XY = merge_gdfs([X, Y])
-print("X shape:", XY[X_cols].shape)
-print("Y shape:", XY[Y_cols].shape)
-
-# %% [markdown]
-# Drop all-NA rows and columns
-
-# %%
-XY, X_cols, Y_cols = drop_NAs(XY, X_cols, Y_cols, True)
 
 # %% [markdown]
 # ### Calculate autocorrelation range of predictors and generate spatial folds for spatial cross-validation
@@ -91,7 +89,7 @@ XY, X_cols, Y_cols = drop_NAs(XY, X_cols, Y_cols, True)
 # %%
 if config.SAVE_AUTOCORRELATION_RANGES:
     coords = XY["geometry"]
-    data = XY[X_cols]
+    data = XY[X.cols]
 
     _, _, ranges = plot_autocorrelation_ranges(
         coords, data, config.LAGS, config.BW, distance_metric="haversine", workers=10
@@ -100,46 +98,94 @@ if config.SAVE_AUTOCORRELATION_RANGES:
     np.save("ranges.npy", np.asarray(ranges))
 
 # %% [markdown]
-# ### Train models for each response variable
+# #### Explore splits for a single response variable
+
 # %%
-if __name__ == "__main__":
-    run_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+if config.EXPLORE_SPLITS:
+    y_col = "iNat_Stem.conduit.density_05deg_ln"
+    sample_Xy = XY.df[["geometry", *XY.X.cols, y_col]]
 
-    param_opt_run_dir = os.path.join(config.PARAM_OPT_RESULTS_DIR, run_time)
-    results_dir = os.path.join(config.MODEL_DIR, run_time)
+    # Drop full-NAs
+    sample_Xy, sample_X_cols, sample_y_col = drop_XY_NAs(
+        sample_Xy, XY.X.cols, y_col, True
+    )
 
-    if not os.path.exists(param_opt_run_dir):
-        os.makedirs(param_opt_run_dir)
+    # Sample X data on which split dissimilarity will be measured
+    sample_data = sample_Xy[sample_X_cols]
+    sample_locs = sample_Xy["geometry"]
 
-    if not os.path.exists(results_dir):
-        os.makedirs(results_dir)
+    # Grid settings
+    tile = config.AUTOCORRELATION_RANGE / config.DEGREE
+    tiles_x = int(np.round(360 / tile))
+    tiles_y = int(np.round(180 / tile))
 
-    results_fn = os.path.join(results_dir, f"{run_time}_results.csv")
-    data_cols = ["model", "params", "mean rmse", "std", "r-squared"]
-    results_df = pd.DataFrame(columns=data_cols)
+    # Spatial blocking
+    hblock = spacv.HBLOCK(
+        tiles_x,
+        tiles_y,
+        shape="hex",
+        method="optimized_random",
+        buffer_radius=0.01,
+        n_groups=10,
+        data=sample_data,
+        n_sims=50,
+        distance_metric="haversine",
+        random_state=config.RNG_STATE,
+    )
 
-    for y_col in Y_cols[-1:]:
-        print(f"Processing {y_col}...\n")
-        run_name = f"{run_time}_{y_col}"
+    # Plot splits
+    print(f"Tile size: {tile:.2f} degrees")
+    plot_splits(hblock, sample_locs)
 
-        Xy = XY[["geometry", *X_cols, y_col]]
+# %% [markdown]
+# ### Train models for each response variable
 
-        Xy, X_cols, y_col = drop_NAs(Xy, X_cols, y_col, True)
+# %%
+if config.TRAIN_MODE:
+    XY.train_collection(config.training_config)
 
-        model_fn, params, rmse, std, r2 = run_training(
-            Xy=Xy,
-            X_cols=X_cols,
-            y_col=y_col,
-            autocorr_range=config.AUTOCORRELATION_RANGE,
-            search_n_trials=100,
-            n_jobs=-1,
-            random_state=config.RNG_STATE,
-            param_opt_save_dir=param_opt_run_dir,
-            final_save_dir=results_dir,
-            run_name=run_name,
-        )
-        results = [model_fn, params, rmse, std, r2]
-        new_df = pd.DataFrame([results], columns=data_cols)
-        results_df = pd.concat([results_df, new_df])
+# %% [markdown]
+# # Debugging
 
-        results_df.to_csv(os.path.join(config.MODEL_DIR, results_fn))
+# %%
+if config.DEBUG:
+    import pathlib
+
+    from utils.training import TrainingConfig, block_cv_splits, optimize_params
+
+    results_dir = pathlib.Path(config.RESULTS_DIR, "test")
+    results_csv = pathlib.Path(results_dir, "training_results.csv")
+    train_config = TrainingConfig(
+        cv_n_groups=2,
+        search_n_trials=2,
+        results_dir=results_dir,
+        results_csv=results_csv,
+    )
+
+    y_col = XY.Y.cols[0]
+
+    Xy = XY.df[["geometry", *XY.X.cols, y_col]]
+    Xy, X_cols, y_cols = drop_XY_NAs(Xy, XY.X.cols, y_col, True)
+
+    X = Xy[X_cols].to_numpy()
+    y = Xy[y_col].to_numpy()
+    coords = Xy["geometry"]
+
+    cv = block_cv_splits(
+        X=X,
+        coords=coords,
+        grid_size=train_config.cv_grid_size,
+        n_groups=train_config.cv_n_groups,
+        random_state=train_config.random_state,
+        verbose=1,
+    )
+
+    reg = optimize_params(
+        X=X,
+        y=y,
+        col_name=y_col,
+        cv=cv,
+        save_dir=train_config.results_dir,
+        n_trials=train_config.search_n_trials,
+        random_state=train_config.random_state,
+    )
