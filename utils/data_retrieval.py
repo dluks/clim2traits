@@ -71,7 +71,7 @@ def get_fns(
     return sorted(fns)
 
 
-def all_gdfs(fns: list[str]) -> gpd.GeoDataFrame:
+def gdf_from_list(fns: list[str]) -> gpd.GeoDataFrame:
     """Get rasters from a list, convert to GeoDataFrames, and merge them into a single
     GeoDataFrame.
 

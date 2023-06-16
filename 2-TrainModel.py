@@ -16,8 +16,8 @@ import pandas as pd
 from spacv.visualisation import plot_autocorrelation_ranges
 
 from TrainModelConfig import TrainModelConfig
-from utils.data_retrieval import all_gdfs
-from utils.geodata import drop_XY_NAs, merge_gdfs
+from utils.data_retrieval import gdf_from_list
+from utils.geodata import drop_NAs, merge_gdfs
 from utils.training import run_training
 
 config = TrainModelConfig()
@@ -29,8 +29,8 @@ config = TrainModelConfig()
 X_fns = config.WC_fns + config.MODIS_fns + config.soil_fns
 Y_fns = config.iNat_fns
 
-X = all_gdfs(X_fns)
-Y = all_gdfs(Y_fns)
+X = gdf_from_list(X_fns)
+Y = gdf_from_list(Y_fns)
 
 # %% [markdown]
 # Compute Preciptation Annual Range by subtracting BIO14 from BIO13
@@ -83,7 +83,7 @@ print("Y shape:", XY[Y_cols].shape)
 # Drop all-NA rows and columns
 
 # %%
-XY, X_cols, Y_cols = drop_XY_NAs(XY, X_cols, Y_cols, True)
+XY, X_cols, Y_cols = drop_NAs(XY, X_cols, Y_cols, True)
 
 # %% [markdown]
 # ### Calculate autocorrelation range of predictors and generate spatial folds for spatial cross-validation
@@ -124,7 +124,7 @@ if __name__ == "__main__":
 
         Xy = XY[["geometry", *X_cols, y_col]]
 
-        Xy, X_cols, y_col = drop_XY_NAs(Xy, X_cols, y_col, True)
+        Xy, X_cols, y_col = drop_NAs(Xy, X_cols, y_col, True)
 
         model_fn, params, rmse, std, r2 = run_training(
             Xy=Xy,
