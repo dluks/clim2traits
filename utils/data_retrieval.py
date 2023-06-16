@@ -72,6 +72,15 @@ def get_fns(
 
 
 def all_gdfs(fns: list[str]) -> gpd.GeoDataFrame:
+    """Get rasters from a list, convert to GeoDataFrames, and merge them into a single
+    GeoDataFrame.
+
+    Args:
+        fns (list[str]): List of xr.DataArrays or filenames
+
+    Returns:
+        gpd.GeoDataFrame: Combined GeoDataFrame
+    """
     gdfs = []
     for fn in fns:
         gdfs.append(tif2gdf(fn))
