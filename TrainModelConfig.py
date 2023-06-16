@@ -1,43 +1,38 @@
 import os
+import pathlib
 
 import numpy as np
 
-from utils.data_retrieval import get_fns
+from utils.datasets import CollectionName
+from utils.training import TrainingConfig
 
 
 # Configuration settings for 2-TrainModel.ipynb
 class TrainModelConfig:
     def __init__(self):
-        # Set to None if resolution should be separate for each dataset
-        MAIN_RES = "0.5_deg"
+        self.TEST_MODE = False
+        self.EXPLORE_SPLITS = False
+        self.SAVE_AUTOCORRELATION_RANGES = False
+        self.RNG_STATE = 100919
+        self.TRAIN_MODE = True
+        self.DEBUG = False
 
         # iNaturalist
-        self.iNat_dir = "./iNaturalist_traits/maps_iNaturalist"
-        self.iNat_res = MAIN_RES or "0.5_deg"
-        self.iNat_transform = "ln"
-        self.iNat_fns = get_fns(
-            self.iNat_dir, self.iNat_res, "iNat", self.iNat_transform
-        )
+        self.iNat_dir = pathlib.Path("./iNaturalist_traits/maps_iNaturalist").absolute()
+        self.iNat_name = CollectionName.INAT
 
         # WorldClim
-        self.WC_dir = "./data/worldclim/bio/"
-        self.WC_res = MAIN_RES or "0.5_deg"
-        self.WC_bios = [1, 4, 7, 12, 13, 14, 15]
-        self.WC_fns = get_fns(self.WC_dir, self.WC_res, "wc", bios=self.WC_bios)
+        self.WC_dir = pathlib.Path("./data/worldclim/bio/").absolute()
+        self.WC_bio_ids = ["1", "4", "7", "12", "13", "14", "13-14", "15"]
+        self.WC_name = CollectionName.WORLDCLIM
 
         # MODIS
-        self.MODIS_dir = "./data/modis/"
-        self.MODIS_res = MAIN_RES or "0.5_deg"
-        self.MODIS_fns = get_fns(self.MODIS_dir, self.MODIS_res, "modis")
+        self.MODIS_dir = pathlib.Path("./data/modis/").absolute()
+        self.MODIS_name = CollectionName.MODIS
 
         # Soil
-        self.soil_dir = "./data/soil"
-        self.soil_res = MAIN_RES or "0.5_deg"
-        self.soil_fns = get_fns(self.soil_dir, self.soil_res, "soil")
-
-        self.SAVE_AUTOCORRELATION_RANGES = False
-
-        self.RNG_STATE = 100919
+        self.soil_dir = pathlib.Path("./data/soil").absolute()
+        self.soil_name = CollectionName.SOIL
 
         # Spatial CV
         if os.path.exists("./ranges.npy"):
@@ -52,17 +47,44 @@ class TrainModelConfig:
         self.LAGS = np.arange(0, UPPER_BOUND, STEP)
 
         # TRAINING
-        self.RESULTS_DIR = os.path.abspath("./results")
-        if not os.path.exists(self.RESULTS_DIR):
-            os.makedirs(self.RESULTS_DIR)
+        self.RESULTS_DIR = pathlib.Path("./results").absolute()
+
+        # make the directory if it doesn't exist
+        self.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
         # Hyperparam tuning
         self.ITERATIONS = 512
-        self.PARAM_OPT_RESULTS_DIR = os.path.join(self.RESULTS_DIR, "ray-results")
-        if not os.path.exists(self.PARAM_OPT_RESULTS_DIR):
-            os.makedirs(self.PARAM_OPT_RESULTS_DIR)
+        # self.HYPEROPT_RESULTS_DIR = pathlib.Path(self.RESULTS_DIR, "ray-results")
+        # self.HYPEROPT_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
         # Model training
-        self.MODEL_DIR = os.path.join(self.RESULTS_DIR, "training")
-        if not os.path.exists(self.MODEL_DIR):
-            os.makedirs(self.MODEL_DIR)
+        self.MODEL_DIR = pathlib.Path(self.RESULTS_DIR, "training")
+        self.csv_fname = "training_results.csv"
+
+        # make the directory if it doesn't exist
+        self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Define TrainingConfig
+        self.training_config = TrainingConfig(
+            train_test_split=0.2,
+            cv_grid_size=self.AUTOCORRELATION_RANGE,
+            cv_n_groups=10,
+            search_n_trials=200,
+            n_jobs=-1,
+            results_dir=self.RESULTS_DIR,
+            results_csv=pathlib.Path(self.RESULTS_DIR, self.csv_fname),
+            random_state=self.RNG_STATE,
+        )
+
+        if self.TEST_MODE:
+            # Define test mode TrainingConfig
+            self.training_config = TrainingConfig(
+                train_test_split=0.2,
+                cv_grid_size=self.AUTOCORRELATION_RANGE,
+                cv_n_groups=2,
+                search_n_trials=2,
+                n_jobs=-1,
+                results_dir=self.RESULTS_DIR / "test",
+                results_csv=pathlib.Path(self.RESULTS_DIR, self.csv_fname),
+                random_state=self.RNG_STATE,
+            )

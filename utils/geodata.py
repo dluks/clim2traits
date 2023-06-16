@@ -11,8 +11,6 @@ import rioxarray as rx
 import xarray as xr
 from rasterio.enums import Resampling
 
-from utils.LogFormatter import get_logger
-
 
 def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
     """Converts a GeoTIFF to a GeoPandas data frame. Accepts either the filename of a
@@ -114,12 +112,10 @@ def drop_XY_NAs(
         Union[gpd.GeoDataFrame, pd.DataFrame]: Original dataframe with full-NA rows/
         columns in the X and Y spaces dropped.
     """
-    # Logging
-    logger = get_logger("drop_XY_NAs")
 
     if verbose:
         shape_before = XY.shape
-        logger.info(f"XY shape before dropping full-NA rows/cols: {shape_before}")
+        print(f"XY shape before dropping full-NA rows/cols: {shape_before}")
     # Drop all rows that contain no response variable data at all
     XY = XY.dropna(axis=0, subset=Y_cols, how="all")
     # Drop all rows that contain no predictor data at all
@@ -150,7 +146,7 @@ def drop_XY_NAs(
             message += f"\nX: {dropped_X_cols}"
             message += f"\nY: {dropped_Y_cols}"
 
-        logger.info(message)
+        print(message)
     # Update X_cols and Y_cols accordingly to account for any dropped columns
     X_cols = X_cols[X_cols.isin(XY.columns)]
     Y_cols = Y_cols[Y_cols.isin(XY.columns)] if not isinstance(Y_cols, str) else Y_cols
