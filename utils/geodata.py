@@ -3,7 +3,7 @@
 ################################
 import os
 from functools import reduce
-from typing import Union
+from typing import Tuple, Union
 
 import geopandas as gpd
 import pandas as pd
@@ -37,18 +37,21 @@ def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
     return gdf
 
 
-def merge_gdfs(
-    gdfs: list[gpd.GeoDataFrame], how: str = "inner", geo_col: str = "geometry"
-) -> gpd.GeoDataFrame:
+def merge_dfs(
+    gdfs: list[Union[pd.DataFrame, gpd.GeoDataFrame]],
+    how: str = "inner",
+    geo_col: str = "geometry",
+) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
     """Merge GeoDataFrames on matching data
 
     Args:
-        gdfs (list): GeoDataFrames to be merged
+        gdfs (list[Union[pd.DataFrame, gpd.GeoDataFrame]]): List of DataFrames to merge
+            on a common column
         how (str, optional): Type of merge to be performed. Defaults to "inner".
         geo_col (str, optional): Name of the geometry column. Defaults to "geometry".
 
     Returns:
-        geopandas.GeoDataFrame: Merged GeoDataFrame
+        Union[pd.DataFrame, gpd.GeoDataFrame]: Merged DataFrame
     """
     merged_gdf = reduce(lambda left, right: pd.merge(left, right, how=how), gdfs)
 
@@ -92,25 +95,25 @@ def print_shapes(
 
 
 def drop_XY_NAs(
-    XY: Union[gpd.GeoDataFrame, pd.DataFrame],
+    XY: Union[gpd.GeoDataFrame, pd.DataFrame, gpd.GeoSeries, pd.Series],
     X_cols: pd.Index,
     Y_cols: Union[pd.Index, str],
-    verbose=False,
-) -> Union[gpd.GeoDataFrame, pd.DataFrame]:
+    verbose: int = 0,
+) -> Tuple[Union[gpd.GeoDataFrame, pd.DataFrame], pd.Index, pd.Index]:
     """Drop all rows and columns that contain all NAs in either X (predictors) or Y
     (response variables).
 
     Args:
         XY (Union[gpd.GeoDataFrame, pd.DataFrame]): Dataframe containing both X and Y
-        variables
-        X_cols (pd.Index): Index identifying the column(s)
-        containing the predictors
-        Y_cols (pd.Index, str): Index or string identifying the column(s)
-        containing the response variable(s)
+            variables
+        X_cols (pd.Index): Index identifying the column(s) containing the predictors
+        Y_cols (pd.Index, str): Index or string identifying the column(s) containing
+            the response variable(s)
+        verbose (int, optional): Verbosity level. Defaults to 0.
 
     Returns:
-        Union[gpd.GeoDataFrame, pd.DataFrame]: Original dataframe with full-NA rows/
-        columns in the X and Y spaces dropped.
+        Tuple[Union[gpd.GeoDataFrame, pd.DataFrame], pd.Index, pd.Index]: Original
+            dataframe with full-NA rows/columns in the X and Y spaces dropped.
     """
 
     if verbose:

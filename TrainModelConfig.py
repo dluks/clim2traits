@@ -35,13 +35,13 @@ class TrainModelConfig:
         self.soil_name = CollectionName.SOIL
 
         # Spatial CV
+        DEGREE = 111325  # Standard value for 1 degree in meters at the equator
         if os.path.exists("./ranges.npy"):
-            self.AUTOCORRELATION_RANGE = np.median(np.load("ranges.npy"))
+            self.AUTOCORRELATION_RANGE = np.median(np.load("ranges.npy")) / DEGREE
         else:
             raise ValueError("Cannot locate autocorrelation ranges")
 
-        self.DEGREE = 111325  # Standard value for 1 degree in meters at the equator
-        UPPER_BOUND = np.round(self.DEGREE * 120)
+        UPPER_BOUND = np.round(DEGREE * 120)
         STEP = np.round(UPPER_BOUND / 30)
         self.BW = STEP // 2
         self.LAGS = np.arange(0, UPPER_BOUND, STEP)
@@ -69,6 +69,7 @@ class TrainModelConfig:
             train_test_split=0.2,
             cv_grid_size=self.AUTOCORRELATION_RANGE,
             cv_n_groups=10,
+            cv_block_buffer=0.01,
             search_n_trials=200,
             n_jobs=-1,
             results_dir=self.RESULTS_DIR,
