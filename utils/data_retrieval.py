@@ -7,7 +7,7 @@ import os
 
 import geopandas as gpd
 
-from utils.geodata import merge_gdfs, tif2gdf
+from utils.geodata import merge_dfs, tif2gdf
 
 
 def get_fns(
@@ -85,5 +85,5 @@ def gdf_from_list(fns: list[str]) -> gpd.GeoDataFrame:
     for fn in fns:
         gdfs.append(tif2gdf(fn))
 
-    merged_gdfs = merge_gdfs(gdfs)
+    merged_gdfs = merge_dfs(gdfs)
     return merged_gdfs

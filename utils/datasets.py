@@ -10,7 +10,7 @@ import geopandas as gpd
 import pandas as pd
 
 from utils.data_retrieval import gdf_from_list
-from utils.geodata import drop_XY_NAs, merge_gdfs
+from utils.geodata import drop_XY_NAs, merge_dfs
 from utils.training import TrainingConfig, TrainingRun
 
 
@@ -194,7 +194,7 @@ class Dataset:
         raise ValueError("No filepaths found!")
 
     @cached_property
-    def df(self) -> gpd.GeoDataFrame:
+    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         return gdf_from_list(fns=self.fpaths)
 
     @cached_property
@@ -220,9 +220,9 @@ class DataCollection:
     datasets: list[Dataset]
 
     @cached_property
-    def df(self) -> gpd.GeoDataFrame:
+    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
-        df = merge_gdfs([dataset.df for dataset in self.datasets])
+        df = merge_dfs([dataset.df for dataset in self.datasets])
         df = df.drop(columns=["x", "y", "band", "spatial_ref"])
         return df
 
@@ -236,8 +236,8 @@ class MLCollection:
     Represents a collection of datasets for machine learning.
 
     Attributes:
-        X (Union[Dataset, DataCollection]): Dataset or DataCollection object for X.
-        Y (Union[Dataset, DataCollection]): Dataset or DataCollection object for Y.
+        X (DataCollection): DataCollection object for X.
+        Y (DataCollection): DataCollection object for Y.
         training_runs (list[dict]): List of training runs.
 
     Methods:
@@ -251,21 +251,19 @@ class MLCollection:
             Trains models for each column in Y.
     """
 
-    def __init__(
-        self, X: Union[Dataset, DataCollection], Y: Union[Dataset, DataCollection]
-    ):
+    def __init__(self, X: DataCollection, Y: DataCollection):
         """Initialize an MLCollection object with X and Y datasets or collections.
 
         Args:
-            X (Union[Dataset, DataCollection]): Dataset or DataCollection object for X.
-            Y (Union[Dataset, DataCollection]): Dataset or DataCollection object for Y.
+            X (DataCollection): DataCollection object for X.
+            Y (DataCollection): DataCollection object for Y.
         """
         self.X = X
         self.Y = Y
         self.training_runs = []
 
     @cached_property
-    def df(self) -> gpd.GeoDataFrame:
+    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
         return self.X.df.merge(self.Y.df, on="geometry")
 
@@ -282,20 +280,35 @@ class MLCollection:
         self.X.df = self.X.df[["geometry", *self.X.cols]]
         self.Y.df = self.Y.df[["geometry", *self.Y.cols]]
 
-    # def train_y_models(self, config: dict) -> None:
-    #     """Train models for each column in Y"""
-    #     train_collection(self, config)
     def add_training_run(self, training_run: TrainingRun) -> None:
         self.training_runs.append(training_run)
 
-    def train_collection(self, training_config: TrainingConfig) -> None:
+    def train_Y_models(
+        self,
+        training_config: TrainingConfig,
+        y_idx: list[int] = None,
+        resume: bool = False,
+    ) -> None:
         """Train models for all response variables in MLCollection
 
         Args:
             training_config (TrainingConfig): Training configuration
+            y_idx (list[int], optional): List of indices of response variables to train.
+                Defaults to None.
+            resume (bool, optional): Whether to resume training. Defaults to False.
         """
-        for y_col in self.Y.cols:
-            train_run = TrainingRun(self, y_col, training_config)
+        cols = self.Y.cols
+
+        if y_idx:
+            cols = cols[y_idx]
+
+        for i, y_col in enumerate(cols):
+            if not resume:
+                resume = (
+                    False if i == 0 else True
+                )  # Only resume if not first response var in the collection
+
+            train_run = TrainingRun(self, y_col, training_config, resume=resume)
 
             train_run.tune_params_cv()
             train_run.train_model_on_all_data()
