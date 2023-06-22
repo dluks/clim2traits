@@ -3,7 +3,7 @@
 ################################
 import os
 from functools import reduce
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import geopandas as gpd
 import pandas as pd
@@ -186,3 +186,56 @@ def validate_raster(
         raise TypeError("Raster is neither a filename nor a valid dataset.")
 
     return raster
+
+
+def netcdf2gdf(da: xr.DataArray, data_label: str, name: str) -> gpd.GeoDataFrame:
+    """Converts a netCDF dataset to a GeoDataFrame"""
+    # Convert to a DataFrame
+    df = da.to_dataframe()
+    df = df.reset_index()
+    df = df.rename(columns={"lon": "x", "lat": "y"})
+    df = df.dropna(subset=["x", "y"])
+    df = df.drop(columns=["time"])
+    df = df.rename(columns={data_label: name})
+    geometry = gpd.points_from_xy(df.x, df.y)
+    df = gpd.GeoDataFrame(df, geometry=geometry)
+    df.set_crs(epsg="4326", inplace=True)
+    return df
+
+
+def ts_netcdf2gdfs(
+    ds: Union[xr.Dataset, str, os.PathLike], ds_name: Optional[str] = None
+) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+    """Converts a timeseries netCDF dataset to a GeoDataFrame with columns for each time step.
+
+    Args:
+        ds (Union[xr.Dataset, str, os.PathLike]): Dataset
+        ds_name (Optional[str], optional): Name of the dataset. Defaults to None.
+
+    Returns:
+        Union[pd.DataFrame, gpd.GeoDataFrame]: GeoDataFrame with columns for each time step
+
+    """
+
+    gdfs = []
+
+    if isinstance(ds, (str, os.PathLike)):
+        ds = xr.open_dataset(ds)
+
+    data_label = str(list(ds.keys())[0])  # assume that the first variable is the data
+
+    for da in ds[data_label]:
+        date = pd.to_datetime(str(da.time.values)).strftime("%Y-%m-%d")
+
+        da_name = (
+            f"{ds_name}_{data_label}_{date}" if ds_name else f"{data_label}_{date}"
+        )
+        df = netcdf2gdf(da, data_label, da_name)
+        gdfs.append(df)
+
+    if len(gdfs) > 1:
+        gdf = merge_dfs(gdfs)
+    else:
+        gdf = gdfs[0]
+
+    return gdf
