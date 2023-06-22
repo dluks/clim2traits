@@ -37,6 +37,7 @@ class CollectionName(Enum):
     )
     SOIL = "ISRIC World Soil Information", "ISRIC_soil", "soil"
     WORLDCLIM = "WorldClim Bioclimatic Variables", "WC_BIO", "wc"
+    VODCA = "VODCA", "VODCA", "vod"
     OTHER = "Other", "other", "other"
 
 
@@ -180,6 +181,14 @@ class Dataset:
             )
             return sorted(glob.glob(search_str))
 
+        if self.collection_name == CollectionName.VODCA:
+            search_str = os.path.join(
+                self.parent_dir,
+                self.res_str,
+                f"*.{self.file_ext.value}",
+            )
+            return sorted(glob.glob(search_str))
+
         raise ValueError("No filepaths found!")
 
     @cached_property
@@ -188,7 +197,11 @@ class Dataset:
 
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
-        df = gdf_from_list(fns=self.fpaths)
+        if self.collection_name == CollectionName.VODCA:
+            ds_name = self.collection_name.abbr
+        else:
+            ds_name = None
+        df = gdf_from_list(fns=self.fpaths, ds_name=ds_name)
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
         return df
 
