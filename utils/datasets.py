@@ -10,6 +10,7 @@ import geopandas as gpd
 import pandas as pd
 
 from utils.data_retrieval import gdf_from_list
+from utils.gdal import resample_gdal
 from utils.geodata import drop_XY_NAs, get_epsg, merge_dfs
 from utils.training import TrainingConfig, TrainingRun
 
@@ -87,7 +88,7 @@ class Dataset:
     def __init__(
         self,
         name: str = "",
-        res: float = 0.5,
+        res: Union[float, int] = 0.5,
         unit: Unit = Unit.DEGREE,
         parent_dir: pathlib.Path = pathlib.Path.cwd(),
         file_ext: FileExt = FileExt.TIF,
@@ -204,6 +205,49 @@ class Dataset:
     @cached_property
     def cols(self) -> pd.Index:
         return self.df.columns.difference(["geometry"])
+
+
+def resample_dataset(
+    dataset: Dataset, resolution: Union[float, int], unit: Unit
+) -> None:
+    """Resamples a dataset to a new resolution and unit.
+
+    Args:
+        dataset (Dataset): Dataset to resample.
+        resolution (Union[float, int]): New resolution.
+        unit (Unit): New unit.
+    """
+    # Check if the dataset resolution is the same as the new resolution
+    if dataset.res == resolution and dataset.unit == unit:
+        raise ValueError(f"Dataset resolution is already {resolution} {unit.abbr}")
+
+    # Create the new directory if it doesn't exist
+    new_dir = pathlib.Path(dataset.parent_dir, f"{resolution}_{unit.abbr}")
+    new_dir.mkdir(parents=True, exist_ok=True)
+
+    for fpath in dataset.fpaths:
+        fpath = pathlib.Path(fpath)
+        new_fname = fpath.name.replace(dataset.res_str, f"{resolution}_{unit.abbr}")
+
+        if dataset.collection_name == CollectionName.SOIL:
+            # Append the soil variable subdirectory
+            soil_var_dir = new_dir / fpath.parts[-2]
+            soil_var_dir.mkdir(parents=True, exist_ok=True)
+            new_fname = pathlib.Path(soil_var_dir, new_fname)
+
+        # Create the new filename
+        new_fpath = new_dir / new_fname
+
+        print(str(fpath))
+        ds = resample_gdal(
+            in_fn=str(fpath),
+            out_fn=str(new_fpath),
+            res=resolution,
+            epsg=f"EPSG:{str(dataset.epsg)}",
+            globe=True,
+        )
+
+        del ds
 
 
 @dataclass
