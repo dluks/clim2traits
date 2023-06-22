@@ -134,7 +134,7 @@ class Dataset:
     @property
     def res_str(self) -> str:
         """Returns the resolution identifier as used in the dataset."""
-        return f"{str(self.res)}_{self.unit.abbr}"
+        return f"{self.res:g}_{self.unit.abbr}"
 
     @property
     def id(self) -> str:

@@ -33,9 +33,10 @@ class TrainingResults:
     """Stores the results of a training run."""
 
     rv: str = ""
+    n_obs: int = 0
     run_id: str = ""
     pred_ds: list = field(default_factory=list)
-    res: float = 0.5
+    res: str = "0.5_deg"
     params: dict = field(default_factory=dict)
     cv_nrmse: float = 0.0
     cv_nrmse_std: float = 0.0
@@ -45,6 +46,8 @@ class TrainingResults:
     predictors: list = field(default_factory=list)
     model_fn: pathlib.Path = field(default_factory=pathlib.Path)
     search_n_trials: int = 0
+    optimizer: str = ""
+    max_iters: int = 0
     cv_n_groups: int = 0
     cv_block_buffer: float = 0.0
     grid_size: float = 0.0
@@ -56,16 +59,19 @@ class TrainingResults:
             {
                 "Run ID": self.run_id,
                 "Response variable": self.rv,
+                "N observations": self.n_obs,
                 "Predictor datasets": [self.pred_ds],
                 "Resolution": self.res,
                 "Best parameters": [self.params],
+                "Optimizer": self.optimizer,
+                "max_iter": self.max_iters,
                 "N tuning iters": self.search_n_trials,
                 "CV nRMSE": self.cv_nrmse,
                 "CV nRMSE STD": self.cv_nrmse_std,
                 "CV r-squared": self.cv_r2,
                 "CV r-squared STD": self.cv_r2_std,
                 "Test r-squared": self.test_r2,
-                "Predictors": [self.predictors],
+                "Predictor importance": [self.predictor_importance],
                 "Model file": self.model_fn,
                 "N CV groups": self.cv_n_groups,
                 "CV grid size [m]": self.grid_size,
@@ -91,6 +97,7 @@ class TrainingConfig:
         cv_block_buffer (float, optional): Buffer used in spatial blocking.
         search_n_trials (int, optional): Number of hyperparameter search
             trials. Defaults to 100.
+        optimizer (str, optional): Hyperparameter optimization algorithm.
         n_jobs (int, optional): Number of parallel jobs. Defaults to -1.
         results_dir (pathlib.Path, optional): Path to the directory to save
             training results. Defaults to "./results".
@@ -104,6 +111,8 @@ class TrainingConfig:
     cv_n_groups: int = 10
     cv_block_buffer: float = 0.0
     search_n_trials: int = 100
+    optimizer: str = "hyperopt"
+    max_iters: int = 1
     n_jobs: int = -1
     results_dir: pathlib.Path = pathlib.Path("./results")
     results_csv: pathlib.Path = pathlib.Path(results_dir) / "training_results.csv"
@@ -171,13 +180,17 @@ class TrainingRun:
         self.results = TrainingResults()  # Initialize TrainingResults object
 
         # Store the IDs of the datasets used as predictors
-        self.results.rv = self.y_col
         self.results.pred_ds = [dataset.id for dataset in XY.X.datasets]
+        self.results.rv = self.y_col
+        self.results.run_id = self.id
+        self.results.res = self.XY.X.datasets[0].res_str
         self.results.search_n_trials = self.training_config.search_n_trials
+        self.results.optimizer = self.training_config.optimizer
+        self.results.max_iters = self.training_config.max_iters
         self.results.cv_n_groups = self.training_config.cv_n_groups
         self.results.cv_block_buffer = self.training_config.cv_block_buffer
         self.results.grid_size = self.training_config.cv_grid_size
-        self.random_state = self.training_config.random_state
+        self.results.random_state = self.training_config.random_state
 
         # Init a X an y dataframe with geometry, predictors, and target variable,
         # and drop rows and columns that contain only NA values
@@ -185,6 +198,8 @@ class TrainingRun:
         # that contain NA values are dropped in both the X and y dataframes
         Xy = self.XY.df[["geometry", *self.XY.X.cols, self.y_col]]
         Xy, X_cols, y_cols = drop_XY_NAs(Xy, XY.X.cols, y_col, True)
+        self.predictor_names = X_cols.values
+        self.results.n_obs = len(Xy)
 
         # Split the data into X, y, and coordinates
         X = Xy[X_cols].to_numpy()
@@ -199,7 +214,11 @@ class TrainingRun:
 
         # Split the data into training and testing sets
         tt_splits = train_test_split(
-            X, y, coords, test_size=self.training_config.train_test_split
+            X,
+            y,
+            coords,
+            test_size=self.training_config.train_test_split,
+            random_state=self.training_config.random_state,
         )
         self.X_train = tt_splits[0]
         self.X_test = tt_splits[1]
@@ -213,12 +232,12 @@ class TrainingRun:
         """Unique identifier for this training run"""
         if self.resume:
             # get last run ID from results CSV
-            ids = pd.read_csv(self.training_config.results_csv)["run id"]
+            ids = pd.read_csv(self.training_config.results_csv)["Run ID"]
             id = ids.last_valid_index()  # ignores empty rows/NaNs
-            if not id:
+            if id is None:
                 warnings.warn("No previous training run found. Starting new run.")
             else:
-                return ids.iloc[id]
+                return ids.iloc[id]  # type: ignore
         return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     @property
@@ -242,6 +261,7 @@ class TrainingRun:
             X=self.X_train,
             coords=self.coords_train,
             grid_size=self.training_config.cv_grid_size,
+            buffer_radius=self.training_config.cv_block_buffer,
             n_groups=self.training_config.cv_n_groups,
             random_state=self.training_config.random_state,
         )
@@ -254,6 +274,8 @@ class TrainingRun:
             col_name=self.y_col,
             cv=self.spatial_cv,
             n_trials=self.training_config.search_n_trials,
+            optimizer=self.training_config.optimizer,
+            max_iters=self.training_config.max_iters,
             save_dir=self.hyperopt_dir,
             random_state=self.training_config.random_state,
             n_jobs=self.training_config.n_jobs,
@@ -286,10 +308,16 @@ class TrainingRun:
             X_test=self.X_test,
             y_test=self.y_test,
             n_jobs=self.training_config.n_jobs,
+            random_state=self.training_config.random_state,
         )
 
         model.save_model(self.results.model_fn)
-        self.results.test_r2 = float(r2)
+        ft_imp = np.column_stack((self.predictor_names, model.feature_importances_))
+        # reverse sort by importance (highest to lowest)
+        self.results.predictor_importance = ft_imp[
+            ft_imp[:, 1].argsort()[::-1]
+        ].tolist()
+        self.results.test_r2 = r2
 
     def save_results(self) -> None:
         """Save results to csv and store dataframe on TrainingRun instance"""
@@ -303,6 +331,7 @@ def block_cv_splits(
     X: np.ndarray,
     coords: pd.Series,
     grid_size: float,
+    buffer_radius=0.01,
     n_groups: int = 10,
     random_state: int = 42,
     verbose: int = 0,
@@ -313,6 +342,7 @@ def block_cv_splits(
         X (np.ndarray): X training data
         coords (pd.Series): Coordinates of training data
         grid_size (float): Size of grid in degrees
+        buffer_radius (float, optional): Buffer radius in degrees. Defaults to 0.01.
         n_groups (int, optional): Number of groups to split into. Defaults to 10.
         random_state (int, optional): Random state. Defaults to 42.
         verbose (int, optional): Verbosity. Defaults to 0.
@@ -330,7 +360,7 @@ def block_cv_splits(
         tiles_y,
         shape="hex",
         method="optimized_random",
-        buffer_radius=0.01,
+        buffer_radius=buffer_radius,
         n_groups=n_groups,
         data=X,
         n_sims=50,
@@ -376,6 +406,8 @@ def optimize_params(
     cv: Union[BaseCrossValidator, Iterable[Tuple[np.ndarray, np.ndarray]]],
     save_dir: pathlib.Path,
     n_trials: int = 10,
+    optimizer: str = "hyperopt",
+    max_iters: int = 1,
     random_state: int = 0,
     n_jobs: int = -1,
     verbose: int = 0,
@@ -423,7 +455,8 @@ def optimize_params(
         verbose=1,
         random_state=random_state,
         name=run_name,
-        search_optimization="hyperopt",
+        search_optimization=optimizer,
+        max_iters=max_iters,
         local_dir=str(save_dir.absolute()),
     )
     reg.fit(X, y)
@@ -476,18 +509,19 @@ def train_model_cv(
 
 
 def train_model_full(
-    model_params, X_train, y_train, X_test, y_test, verbose=0, n_jobs=-1
-):
+    random_state: int = 42,
     if verbose == 1:
         print("Training full model and saving...")
 
     model = XGBRegressor(
         **model_params,
         booster="gbtree",
+        importance_type="gain",
         early_stopping_rounds=100,
         verbose=0,
         eval_metric=mean_squared_error,
         n_jobs=n_jobs,
+        random_state=random_state,
     )
     model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
 
