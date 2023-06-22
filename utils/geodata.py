@@ -39,8 +39,7 @@ def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
 
 def merge_dfs(
     gdfs: list[Union[pd.DataFrame, gpd.GeoDataFrame]],
-    how: str = "inner",
-    geo_col: str = "geometry",
+    how: str = "left",
 ) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
     """Merge GeoDataFrames on matching data
 
