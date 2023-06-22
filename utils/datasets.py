@@ -39,20 +39,23 @@ class FileExt(Enum):
 class CollectionName(Enum):
     """Name of the dataset collection."""
 
-    def __new__(cls, value, abbr):
+    def __new__(cls, value, short, abbr):
         obj = object.__new__(cls)
         obj._value_ = value
+        obj.short = short
         obj.abbr = abbr
         return obj
 
-    INAT = "iNaturalist Traits", "iNat_orig"
+    INAT = "iNaturalist Traits", "iNat_orig", "inat_orig"
+    INAT_DGVM = "iNaturalist Traits (DGVM)", "iNat_DGVM", "inat_dgvm"
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
         "MOD09GA.061_1km",
+        "modis",
     )
-    SOIL = "ISRIC World Soil Information", "ISRIC_soil"
-    WORLDCLIM = "WorldClim Bioclimatic Variables", "WC_BIO"
-    OTHER = "Other", "other"
+    SOIL = "ISRIC World Soil Information", "ISRIC_soil", "soil"
+    WORLDCLIM = "WorldClim Bioclimatic Variables", "WC_BIO", "wc"
+    OTHER = "Other", "other", "other"
 
 
 class Dataset:
@@ -136,13 +139,16 @@ class Dataset:
     @property
     def id(self) -> str:
         """Returns the dataset identifier."""
-        return f"{self.collection_name.abbr}_{self.res_str}"
+        return f"{self.collection_name.short}_{self.res_str}"
 
     @property
     def fpaths(self) -> list[str]:
         """Filenames for the dataset based on the collection name"""
 
-        if self.collection_name == CollectionName.INAT:
+        if (
+            self.collection_name == CollectionName.INAT
+            or self.collection_name == CollectionName.INAT_DGVM
+        ):
             search_str = os.path.join(
                 self.parent_dir,
                 self.res_str,
@@ -200,7 +206,9 @@ class Dataset:
 
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
-        return gdf_from_list(fns=self.fpaths)
+        df = gdf_from_list(fns=self.fpaths)
+        df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
+        return df
 
     @cached_property
     def cols(self) -> pd.Index:
