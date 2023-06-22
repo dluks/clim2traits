@@ -4,12 +4,12 @@ import pathlib
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from locale import D_FMT
-from typing import TYPE_CHECKING, Any, Generator, Iterable, List, Tuple, Union
-from unittest.mock import Base
+from typing import TYPE_CHECKING, Iterable
+from typing import SupportsFloat as Numeric
+from typing import Tuple, Union
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import spacv
 from ray import tune
@@ -38,19 +38,19 @@ class TrainingResults:
     pred_ds: list = field(default_factory=list)
     res: str = "0.5_deg"
     params: dict = field(default_factory=dict)
-    cv_nrmse: float = 0.0
-    cv_nrmse_std: float = 0.0
-    cv_r2: float = 0.0
-    cv_r2_std: float = 0.0
-    test_r2: float = 0.0
-    predictors: list = field(default_factory=list)
+    cv_nrmse: Numeric = 0.0
+    cv_nrmse_std: Numeric = 0.0
+    cv_r2: Numeric = 0.0
+    cv_r2_std: Numeric = 0.0
+    test_r2: Numeric = 0.0
+    predictor_importance: list = field(default_factory=list)
     model_fn: pathlib.Path = field(default_factory=pathlib.Path)
     search_n_trials: int = 0
     optimizer: str = ""
     max_iters: int = 0
     cv_n_groups: int = 0
-    cv_block_buffer: float = 0.0
-    grid_size: float = 0.0
+    cv_block_buffer: Numeric = 0.0
+    grid_size: Numeric = 0.0
     random_state: int = 0
 
     def to_df(self) -> pd.DataFrame:
@@ -147,7 +147,7 @@ class TrainingRun:
         id (str): Unique identifier for this training run.
         hyperopt_dir (str): Directory to save hyperopt results.
         results_dir (str): Directory to save training results.
-        spatial_cv (Generator[Tuple[np.ndarray, np.ndarray]]): Spatial cross-validation
+        spatial_cv (Generator[Tuple[NDArray, NDArray]]): Spatial cross-validation
             iterator.
 
     Methods:
@@ -255,7 +255,7 @@ class TrainingRun:
         return d
 
     @property
-    def spatial_cv(self) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
+    def spatial_cv(self) -> Iterable[Tuple[npt.NDArray, npt.NDArray]]:
         """Spatial CV iterator"""
         return block_cv_splits(
             X=self.X_train,
@@ -281,11 +281,8 @@ class TrainingRun:
             n_jobs=self.training_config.n_jobs,
         )
         params = reg.best_params
-
         rmses, r2s = get_cv_results(reg, self.training_config.cv_n_groups)
-
         cv_nrmse, cv_nrmse_std = normalize_to_range(rmses, self.y_range)
-
         cv_r2, cv_r2_std = r2s.mean(), r2s.std()
 
         self.results.params = params
@@ -328,18 +325,18 @@ class TrainingRun:
 
 
 def block_cv_splits(
-    X: np.ndarray,
+    X: npt.NDArray,
     coords: pd.Series,
     grid_size: float,
     buffer_radius=0.01,
     n_groups: int = 10,
     random_state: int = 42,
     verbose: int = 0,
-) -> Iterable[Tuple[np.ndarray, np.ndarray]]:
+) -> Iterable[Tuple[npt.NDArray, npt.NDArray]]:
     """Define spatial folds for cross-validation
 
     Args:
-        X (np.ndarray): X training data
+        X (NDArray): X training data
         coords (pd.Series): Coordinates of training data
         grid_size (float): Size of grid in degrees
         buffer_radius (float, optional): Buffer radius in degrees. Defaults to 0.01.
@@ -348,7 +345,7 @@ def block_cv_splits(
         verbose (int, optional): Verbosity. Defaults to 0.
 
     Returns:
-        Iterable[Tuple[np.ndarray, np.ndarray]]: Spatial folds
+        Iterable[Tuple[NDArray, NDArray]]: Spatial folds
     """
     if verbose == 1:
         print("Defining spatial folds...")
@@ -373,11 +370,11 @@ def block_cv_splits(
     return splits
 
 
-def normalize_to_range(x: np.ndarray, range: float) -> Tuple[float, float]:
+def normalize_to_range(x: npt.NDArray, range: float) -> Tuple[float, float]:
     """Normalize a dataset to a range
 
     Args:
-        x (np.ndarray): Data
+        x (NDArray): Data
         range (float): Range to normalize with
 
     Returns:
@@ -400,10 +397,10 @@ def get_cv_results(reg: TuneSearchCV, nsplits: int):
 
 
 def optimize_params(
-    X: np.ndarray,
-    y: np.ndarray,
+    X: npt.NDArray,
+    y: npt.NDArray,
     col_name: str,
-    cv: Union[BaseCrossValidator, Iterable[Tuple[np.ndarray, np.ndarray]]],
+    cv: Union[BaseCrossValidator, Iterable[Tuple[npt.NDArray, npt.NDArray]]],
     save_dir: pathlib.Path,
     n_trials: int = 10,
     optimizer: str = "hyperopt",
@@ -415,8 +412,8 @@ def optimize_params(
     """Optimize XGBoost model hyperparameters using Ray Tune and Hyperopt.
 
     Args:
-        X (np.ndarray): Input data.
-        y (np.ndarray): Target data.
+        X (NDArray): Input data.
+        y (NDArray): Target data.
         col_name (str): Name of the target column.
         cv (BaseCrossValidator): Cross-validation object or iterator.
         save_dir (pathlib.Path): Directory to save optimization results.
@@ -466,18 +463,18 @@ def optimize_params(
 
 def train_model_cv(
     model_params: dict,
-    X: np.ndarray,
-    y: np.ndarray,
+    X: npt.NDArray,
+    y: npt.NDArray,
     cv,
     n_jobs: int = -1,
     verbose: int = 0,
-) -> tuple:
+) -> Tuple[Numeric, Numeric, npt.NDArray]:
     """Train the model with cross-validation and return performance metrics.
 
     Args:
         model_params (dict): Parameters for the XGBoost model.
-        X (np.ndarray): Input data.
-        y (np.ndarray): Target data.
+        X (NDArray): Input data.
+        y (NDArray): Target data.
         cv: Cross-validation object or iterator.
         n_jobs (int, optional): Number of parallel jobs. Defaults to -1.
         verbose (int, optional): Verbosity level. Defaults to 0.
@@ -509,7 +506,15 @@ def train_model_cv(
 
 
 def train_model_full(
+    model_params: dict,
+    X_train: npt.NDArray,
+    y_train: npt.NDArray,
+    X_test: npt.NDArray,
+    y_test: npt.NDArray,
+    verbose: int = 0,
+    n_jobs: int = -1,
     random_state: int = 42,
+) -> Tuple[XGBRegressor, Numeric]:
     if verbose == 1:
         print("Training full model and saving...")
 
@@ -518,7 +523,6 @@ def train_model_full(
         booster="gbtree",
         importance_type="gain",
         early_stopping_rounds=100,
-        verbose=0,
         eval_metric=mean_squared_error,
         n_jobs=n_jobs,
         random_state=random_state,

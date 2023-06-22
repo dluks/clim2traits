@@ -37,7 +37,7 @@ def catch_gdal(f: Callable[P, T]) -> Callable[P, T]:
 
     @wraps(f)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
-        base = os.path.basename(args[0])
+        base = os.path.basename(str(kwargs["in_fn"]))
         try:
             return f(*args, **kwargs)
         except Exception as ex:

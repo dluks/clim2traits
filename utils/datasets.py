@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import glob
 import os
 import pathlib
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from typing import Union
+from typing import Optional, Union
 
 import geopandas as gpd
 import pandas as pd
@@ -279,7 +281,6 @@ class DataCollection:
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
         df = merge_dfs([dataset.df for dataset in self.datasets])
-        df = df.drop(columns=["x", "y", "band", "spatial_ref"])
         return df
 
     @cached_property
@@ -342,7 +343,7 @@ class MLCollection:
     def train_Y_models(
         self,
         training_config: TrainingConfig,
-        y_idx: list[int] = None,
+        y_idx: Optional[list[int]] = None,
         resume: bool = False,
     ) -> None:
         """Train models for all response variables in MLCollection
@@ -353,20 +354,23 @@ class MLCollection:
                 Defaults to None.
             resume (bool, optional): Whether to resume training. Defaults to False.
         """
-        cols = self.Y.cols
+        y_cols = self.Y.cols
 
         if y_idx:
             cols = cols[y_idx]
 
-        for i, y_col in enumerate(cols):
+        for i, y_col in enumerate(y_cols):
             if not resume:
-                resume = (
-                    False if i == 0 else True
-                )  # Only resume if not first response var in the collection
+            print(f"Training model on {y_col}...")
 
             train_run = TrainingRun(self, y_col, training_config, resume=resume)
 
+            print("Tuning hyperparameters...")
             train_run.tune_params_cv()
+            print("Tuning complete.")
+            print("Training model on all data...")
             train_run.train_model_on_all_data()
+            print("Training complete.")
+            print("Saving results...")
             train_run.save_results()
-            self.training_runs.append(train_run)
+            print("Results saved.")
