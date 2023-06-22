@@ -7,7 +7,7 @@ from typing import Tuple, Union
 
 import geopandas as gpd
 import pandas as pd
-import rioxarray as rx
+import rioxarray as riox
 import xarray as xr
 from rasterio.enums import Resampling
 
@@ -23,16 +23,14 @@ def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
     Returns:
         geopandas.GeoDataFrame: GeoPandas data frame
     """
-    if isinstance(raster, str):
-        name = os.path.splitext(os.path.basename(raster))[0]
-        raster = rx.open_rasterio(raster, masked=True)
-        raster.name = name
-    elif not isinstance(raster, xr.DataArray):
-        raise TypeError("raster is neither a filename or an xr dataset.")
+    dataset = validate_raster(raster)
 
-    df = raster.squeeze().to_dataframe().reset_index()
+    if len(dataset) > 1:
+        raise ValueError("raster must be a single-band dataset.")
+
+    df = dataset.squeeze().to_dataframe().reset_index()
     geometry = gpd.points_from_xy(df.x, df.y)
-    gdf = gpd.GeoDataFrame(df, crs=raster.rio.crs, geometry=geometry)
+    gdf = gpd.GeoDataFrame(df, crs=dataset.rio.crs, geometry=geometry)
 
     return gdf
 
@@ -154,3 +152,24 @@ def drop_XY_NAs(
     Y_cols = Y_cols[Y_cols.isin(XY.columns)] if not isinstance(Y_cols, str) else Y_cols
 
     return XY, X_cols, Y_cols
+
+def validate_raster(
+    raster: Union[str, os.PathLike, xr.DataArray]
+) -> Union[xr.Dataset, xr.DataArray, list[xr.Dataset]]:
+    """Validate a raster dataset.
+
+    Args:
+        raster (Union[str, os.PathLike, xr.DataArray]): Raster dataset
+
+    Returns:
+        xr.DataArray: Validated raster dataset
+    """
+    if isinstance(raster, (str, os.PathLike)):
+        name = os.path.splitext(os.path.basename(raster))[0]
+        dataset = riox.open_rasterio(raster, masked=True, default_name=name)
+        return dataset
+
+    if not isinstance(raster, xr.DataArray):
+        raise TypeError("Raster is neither a filename nor a valid dataset.")
+
+    return raster
