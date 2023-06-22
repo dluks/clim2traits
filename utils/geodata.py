@@ -153,6 +153,21 @@ def drop_XY_NAs(
 
     return XY, X_cols, Y_cols
 
+
+def get_epsg(raster: Union[str, os.PathLike, xr.DataArray]) -> int:
+    """Get the EPSG code of a raster.
+
+    Args:
+        raster (Union[str, os.PathLike, xr.DataArray]): Raster dataset
+
+    Returns:
+        int: EPSG code
+    """
+    dataset = validate_raster(raster)
+
+    return int(dataset.rio.crs.to_epsg())
+
+
 def validate_raster(
     raster: Union[str, os.PathLike, xr.DataArray]
 ) -> Union[xr.Dataset, xr.DataArray, list[xr.Dataset]]:

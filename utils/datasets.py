@@ -10,7 +10,7 @@ import geopandas as gpd
 import pandas as pd
 
 from utils.data_retrieval import gdf_from_list
-from utils.geodata import drop_XY_NAs, merge_dfs
+from utils.geodata import drop_XY_NAs, get_epsg, merge_dfs
 from utils.training import TrainingConfig, TrainingRun
 
 
@@ -192,6 +192,10 @@ class Dataset:
             return sorted(glob.glob(search_str))
 
         raise ValueError("No filepaths found!")
+
+    @cached_property
+    def epsg(self) -> int:
+        return get_epsg(self.fpaths[0])
 
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
