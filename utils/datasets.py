@@ -12,30 +12,10 @@ import geopandas as gpd
 import pandas as pd
 
 from utils.data_retrieval import gdf_from_list
+from utils.dataset_tools import FileExt, Unit
 from utils.gdal import resample_gdal
 from utils.geodata import drop_XY_NAs, get_epsg, merge_dfs
 from utils.training import TrainingConfig, TrainingRun
-
-
-class Unit(Enum):
-    """Unit of measurement for the dataset."""
-
-    def __new__(cls, value, abbr):
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.abbr = abbr
-        return obj
-
-    DEGREE = "degree", "deg"
-    METER = "meter", "m"
-    KILOMETER = "kilometer", "km"
-    MINUTE = "minute", "min"
-
-
-class FileExt(Enum):
-    """File extension for the raw data in the dataset."""
-
-    TIF = "tif"
 
 
 class CollectionName(Enum):
@@ -94,9 +74,9 @@ class Dataset:
         self,
         name: str = "",
         res: Union[float, int] = 0.5,
-        unit: Unit = Unit.DEGREE,
+        unit: Unit = Unit("degree"),
         parent_dir: pathlib.Path = pathlib.Path.cwd(),
-        file_ext: FileExt = FileExt.TIF,
+        file_ext: FileExt = FileExt("tif"),
         collection_name: CollectionName = CollectionName.OTHER,
         transform: str = "",
         bio_ids: list[str] = [],

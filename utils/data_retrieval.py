@@ -7,7 +7,7 @@ import os
 
 import geopandas as gpd
 
-from utils.geodata import merge_dfs, tif2gdf
+from utils.dataset_tools import FileExt
 
 
 def get_fns(
