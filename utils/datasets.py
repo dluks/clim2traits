@@ -186,8 +186,8 @@ class Dataset:
         if self.collection_name == CollectionName.SOIL:
             search_str = os.path.join(
                 self.parent_dir,
-                "*",
                 self.res_str,
+                "*",
                 f"*.{self.file_ext.value}",
             )
             return sorted(glob.glob(search_str))
@@ -357,10 +357,21 @@ class MLCollection:
         y_cols = self.Y.cols
 
         if y_idx:
-            cols = cols[y_idx]
+            y_cols = y_cols[y_idx]
+
+        if resume:
+            results_csv = pd.read_csv(training_config.results_csv)
+            run_ids = results_csv["Run ID"]
+            run_id = run_ids.iloc[run_ids.last_valid_index()]  # type: ignore
+            runs = results_csv.loc[results_csv["Run ID"] == run_id]
+            completed_rvs = runs["Response variable"].values
+            y_cols = y_cols.difference(completed_rvs)
 
         for i, y_col in enumerate(y_cols):
             if not resume:
+                # Only resume after first response var in the collection has completed
+                resume = False if i == 0 else True
+
             print(f"Training model on {y_col}...")
 
             train_run = TrainingRun(self, y_col, training_config, resume=resume)
