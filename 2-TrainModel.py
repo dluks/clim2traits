@@ -1,30 +1,29 @@
-# %% [markdown]
 # # 2: Train XGBoost Model
 #
 # Author: Daniel Lusk
 
-# %% [markdown]
 # ## Imports and configuration
 
 import argparse
-import pathlib
+from pathlib import Path
 
 from TrainModelConfig import TrainModelConfig
-from utils.datasets import CollectionName, DataCollection, Dataset, MLCollection, Unit
+from utils.dataset_tools import FileExt, Unit
+from utils.datasets import CollectionName, DataCollection, Dataset, MLCollection
 
 config = TrainModelConfig()
 
-# %% [markdown]
 # ## Load data
 
 
 # %%
 def prep_data(
-    X_names: list = ["wc", "soil", "modis"],
-    Y_names: list = ["inat_orig, inat_dgvm"],
+    X_names: list = ["all"],
+    Y_names: list = ["inat_gbif"],
     res: float = 0.5,
     inat_transform: str = "exp_ln",
 ) -> MLCollection:
+    """Load data and prepare for training"""
     inat_orig = Dataset(
         res=res,
         unit=Unit.DEGREE,
@@ -36,11 +35,18 @@ def prep_data(
     inat_dgvm = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        parent_dir=pathlib.Path(
+        parent_dir=Path(
             "./iNaturalist_traits/maps_iNaturalist/DGVM/continuous_traits/"
         ),
         collection_name=CollectionName.INAT_DGVM,
         transform=inat_transform,
+    )
+
+    inat_gbif = Dataset(
+        res=0.5,
+        unit=Unit.DEGREE,
+        parent_dir=Path("./iNaturalist_traits/maps_GBIF/traitmaps/TRY_gap_filled/"),
+        collection_name=CollectionName.INAT_GBIF,
     )
 
     wc = Dataset(
@@ -65,8 +71,16 @@ def prep_data(
         collection_name=config.soil_name,
     )
 
-    all_predictors = [wc, modis, soil]
-    all_rvs = [inat_orig, inat_dgvm]
+    vodca = Dataset(
+        res=0.5,
+        unit=Unit.DEGREE,
+        parent_dir=Path("./data/vodca/"),
+        collection_name=CollectionName.VODCA,
+        file_ext=FileExt.NETCDF4,
+    )
+
+    all_predictors = [wc, modis, soil, vodca]
+    all_rvs = [inat_orig, inat_dgvm, inat_gbif]
 
     if X_names == ["all"]:
         predictors = all_predictors
@@ -89,8 +103,6 @@ def prep_data(
 
     # Convert to MLCollection for training
     XY = MLCollection(X, Y)
-    print("XY shape:", XY.df.shape)
-
     XY.drop_NAs(verbose=1)
 
     return XY
@@ -101,7 +113,9 @@ def prep_data(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--X", nargs="+", type=str, default=["all"], help="X datasets")
-    parser.add_argument("--Y", nargs="+", type=str, default=["all"], help="Y datasets")
+    parser.add_argument(
+        "--Y", nargs="+", type=str, default=["inat_gbif"], help="Y datasets"
+    )
     parser.add_argument(
         "--res", type=float, default=0.5, help="Resolution of the datasets"
     )
