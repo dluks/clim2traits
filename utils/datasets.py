@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import glob
 import os
-import pathlib
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
+from pathlib import Path
 from typing import Optional, Union
 
 import geopandas as gpd
@@ -30,6 +30,7 @@ class CollectionName(Enum):
 
     INAT = "iNaturalist Traits", "iNat_orig", "inat_orig"
     INAT_DGVM = "iNaturalist Traits (DGVM)", "iNat_DGVM", "inat_dgvm"
+    INAT_GBIF = "iNaturalist Traits (GBIF)", "iNat_GBIF", "inat_gbif"
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
         "MOD09GA.061_1km",
@@ -50,7 +51,7 @@ class Dataset:
         name (str): Name of the dataset.
         res (float): Resolution of the dataset.
         unit (Unit): Unit of measurement for the dataset.
-        parent_dir (pathlib.Path): Parent directory of the dataset.
+        parent_dir (Path): Parent directory of the dataset.
         file_ext (FileExt): File extension for the raw data in the dataset.
         collection_name (CollectionName): Name of the dataset collection.
         transform (str): Transformation type of the dataset (applies to iNaturalist
@@ -76,7 +77,7 @@ class Dataset:
         name: str = "",
         res: Union[float, int] = 0.5,
         unit: Unit = Unit("degree"),
-        parent_dir: pathlib.Path = pathlib.Path.cwd(),
+        parent_dir: Path = Path.cwd(),
         file_ext: FileExt = FileExt("tif"),
         collection_name: CollectionName = CollectionName.OTHER,
         transform: str = "",
@@ -89,8 +90,8 @@ class Dataset:
             res (float, optional): Resolution of the dataset. Defaults to 0.5.
             unit (Unit, optional): Unit of measurement for the dataset. Defaults to
                 Unit.DEGREE.
-            parent_dir (pathlib.Path, optional): Parent directory of the dataset.
-                Defaults to pathlib.Path.cwd().
+            parent_dir (Path, optional): Parent directory of the dataset.
+                Defaults to Path.cwd().
             file_ext (FileExt, optional): File extension for the raw data in the
                 dataset. Defaults to FileExt.TIF.
             collection_name (CollectionName, optional): Name of the dataset collection.
@@ -125,9 +126,9 @@ class Dataset:
         return f"{self.collection_name.short}_{self.res_str}"
 
     @property
-    def fpaths(self) -> list[str]:
-        """Filenames for the dataset based on the collection name"""
-
+    def _search_str(self) -> str:
+        """Returns the search string for the dataset."""
+        search_str = ""
         if (
             self.collection_name == CollectionName.INAT
             or self.collection_name == CollectionName.INAT_DGVM
@@ -138,13 +139,31 @@ class Dataset:
                 self.transform,
                 f"*.{self.file_ext.value}",
             )
-            return sorted(glob.glob(search_str))
-
-        if self.collection_name == CollectionName.WORLDCLIM:
+        elif self.collection_name == CollectionName.INAT_GBIF:
+            search_str = os.path.join(
+                self.parent_dir,
+                self.res_str,
+                f"GBIF*.{self.file_ext.value}",
+            )
+        elif self.collection_name == CollectionName.SOIL:
+            search_str = os.path.join(
+                self.parent_dir,
+                self.res_str,
+                "*",
+                f"*.{self.file_ext.value}",
+            )
+        else:
             search_str = os.path.join(
                 self.parent_dir, self.res_str, f"*.{self.file_ext.value}"
             )
-            all_fpaths = sorted(glob.glob(search_str))
+        return search_str
+
+    @property
+    def fpaths(self) -> list[str]:
+        """Filenames for the dataset based on the collection name"""
+
+        if self.collection_name == CollectionName.WORLDCLIM:
+            all_fpaths = self._get_fpaths()
 
             if not self.bio_ids:
                 return all_fpaths
@@ -162,34 +181,12 @@ class Dataset:
                     if fname in fpath:
                         fpaths.append(fpath)
 
+            if not fpaths:
+                raise FileNotFoundError("No files found!")
+
             return sorted(fpaths)
 
-        if self.collection_name == CollectionName.SOIL:
-            search_str = os.path.join(
-                self.parent_dir,
-                self.res_str,
-                "*",
-                f"*.{self.file_ext.value}",
-            )
-            return sorted(glob.glob(search_str))
-
-        if self.collection_name == CollectionName.MODIS:
-            search_str = os.path.join(
-                self.parent_dir,
-                self.res_str,
-                f"*.{self.file_ext.value}",
-            )
-            return sorted(glob.glob(search_str))
-
-        if self.collection_name == CollectionName.VODCA:
-            search_str = os.path.join(
-                self.parent_dir,
-                self.res_str,
-                f"*.{self.file_ext.value}",
-            )
-            return sorted(glob.glob(search_str))
-
-        raise ValueError("No filepaths found!")
+        return self._get_fpaths()
 
     @cached_property
     def epsg(self) -> int:
@@ -209,6 +206,35 @@ class Dataset:
     def cols(self) -> pd.Index:
         return self.df.columns.difference(["geometry"])
 
+    def _get_fpaths(self) -> list[str]:
+        """Returns a list of filepaths for a given resolution string.
+
+        Returns:
+            list[str]: List of filepaths.
+        """
+        fpaths = sorted(glob.glob(self._search_str))
+
+        if not fpaths:
+            # Check for variations in the resolution string (e.g. 0.5deg vs 0.5_deg)
+            variations = [
+                self.res_str,
+                self.res_str.replace(".", ""),
+                self.res_str.replace("_", ""),
+                self.res_str.replace("_", "").replace(".", ""),
+            ]
+
+            for variation in variations:
+                fpaths = sorted(
+                    glob.glob(self._search_str.replace(self.res_str, variation))
+                )
+                if fpaths:
+                    break
+
+        if not fpaths:
+            raise FileNotFoundError(f"No files found for {self.collection_name}.")
+
+        return fpaths
+
 
 def resample_dataset(
     dataset: Dataset, resolution: Union[float, int], unit: Unit
@@ -225,18 +251,18 @@ def resample_dataset(
         raise ValueError(f"Dataset resolution is already {resolution} {unit.abbr}")
 
     # Create the new directory if it doesn't exist
-    new_dir = pathlib.Path(dataset.parent_dir, f"{resolution}_{unit.abbr}")
+    new_dir = Path(dataset.parent_dir, f"{resolution}_{unit.abbr}")
     new_dir.mkdir(parents=True, exist_ok=True)
 
     for fpath in dataset.fpaths:
-        fpath = pathlib.Path(fpath)
+        fpath = Path(fpath)
         new_fname = fpath.name.replace(dataset.res_str, f"{resolution}_{unit.abbr}")
 
         if dataset.collection_name == CollectionName.SOIL:
             # Append the soil variable subdirectory
             soil_var_dir = new_dir / fpath.parts[-2]
             soil_var_dir.mkdir(parents=True, exist_ok=True)
-            new_fname = pathlib.Path(soil_var_dir, new_fname)
+            new_fname = Path(soil_var_dir, new_fname)
 
         # Create the new filename
         new_fpath = new_dir / new_fname
