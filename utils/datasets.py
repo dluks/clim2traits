@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 
 from utils.data_retrieval import gdf_from_list
@@ -82,6 +83,7 @@ class Dataset:
         collection_name: CollectionName = CollectionName.OTHER,
         transform: str = "",
         bio_ids: list[str] = [],
+        filter_outliers: list = [],
     ):
         """Initialize a Dataset object with resolution, unit, and collection name.
 
@@ -110,6 +112,7 @@ class Dataset:
         self.collection_name = collection_name
         self.transform = transform
         self.bio_ids = bio_ids
+        self.filter_outliers = filter_outliers
 
         # Transform is required for INAT datasets
         if self.collection_name == CollectionName.INAT and not self.transform:
@@ -200,6 +203,33 @@ class Dataset:
             ds_name = None
         df = gdf_from_list(fns=self.fpaths, ds_name=ds_name)
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
+        if self.filter_outliers:
+            df = self._filter_outliers(df, self.filter_outliers)
+        return df
+
+    @staticmethod
+    def _filter_outliers(
+        df: Union[pd.DataFrame, gpd.GeoDataFrame], bounds: list = [0.01, 0.99]
+    ) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+        """Filters outliers from a dataset.
+
+        Args:
+            df (Union[pd.DataFrame, gpd.GeoDataFrame]): Dataset.
+            bounds (list, optional): Lower and upper bounds for filtering outliers.
+
+        Returns:
+            Union[pd.DataFrame, gpd.GeoDataFrame]: Dataset with outliers removed.
+        """
+        # Filter out outliers
+        cols = df.columns.difference(["geometry"]).values
+
+        for col in cols:
+            lower_mask = df[col] < df[col].quantile(bounds[0])
+            upper_mask = df[col] > df[col].quantile(bounds[1])
+
+            # combine the masks and set the values to NaN
+            df[col] = df[col].mask(lower_mask | upper_mask)
+
         return df
 
     @cached_property

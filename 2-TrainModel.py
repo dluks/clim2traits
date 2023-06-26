@@ -47,6 +47,7 @@ def prep_data(
         unit=Unit.DEGREE,
         parent_dir=Path("./iNaturalist_traits/maps_GBIF/traitmaps/TRY_gap_filled/"),
         collection_name=CollectionName.INAT_GBIF,
+        filter_outliers=config.training_config.filter_y_outliers,
     )
 
     wc = Dataset(

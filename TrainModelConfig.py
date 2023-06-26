@@ -76,6 +76,7 @@ class TrainModelConfig:
             results_dir=self.RESULTS_DIR,
             results_csv=pathlib.Path(self.RESULTS_DIR, self.csv_fname),
             random_state=self.RNG_STATE,
+            filter_y_outliers=[0.01, 0.99],
         )
 
         if self.debug:
