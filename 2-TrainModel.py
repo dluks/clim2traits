@@ -6,6 +6,7 @@
 
 import argparse
 from pathlib import Path
+from pprint import pprint
 
 from TrainModelConfig import TrainModelConfig
 from utils.dataset_tools import FileExt, Unit
@@ -102,6 +103,15 @@ def prep_data(
     X = DataCollection(predictors)
     Y = DataCollection(rvs)
 
+    print("\nPreparing data...")
+    print("X:")
+    for dataset in X.datasets:
+        print("    ", dataset.collection_name.short)
+
+    print("Y:")
+    for dataset in Y.datasets:
+        print("    ", dataset.collection_name.short)
+
     # Convert to MLCollection for training
     XY = MLCollection(X, Y)
     XY.drop_NAs(verbose=1)
@@ -151,7 +161,8 @@ if __name__ == "__main__":
         print(f"Resume: {args.resume}")
         print(f"Y indices: {args.y_idx}")
         print(f"Debug: {args.debug}")
-        print(f"Config: {config.__dict__}")
+        print(f"Config:")
+        pprint(config.__dict__)
 
     XY = prep_data(
         X_names=args.X, Y_names=args.Y, res=args.res, inat_transform=args.inat_transform
