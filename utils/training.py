@@ -52,6 +52,7 @@ class TrainingResults:
     cv_block_buffer: Numeric = 0.0
     grid_size: Numeric = 0.0
     random_state: int = 0
+    filtered_outliers: list = field(default_factory=list)
 
     def to_df(self) -> pd.DataFrame:
         """Converts the results to a pandas DataFrame."""
@@ -77,6 +78,7 @@ class TrainingResults:
                 "CV grid size [m]": self.grid_size,
                 "CV block buffer": self.cv_block_buffer,
                 "Random seed": self.random_state,
+                "Filtered RV outliers": [self.filtered_outliers],
             }
         )
         return df
@@ -117,6 +119,7 @@ class TrainingConfig:
     results_dir: pathlib.Path = pathlib.Path("./results")
     results_csv: pathlib.Path = pathlib.Path(results_dir) / "training_results.csv"
     random_state: int = 42
+    filter_y_outliers: list = field(default_factory=list)
 
 
 class TrainingRun:
@@ -191,6 +194,7 @@ class TrainingRun:
         self.results.cv_block_buffer = self.training_config.cv_block_buffer
         self.results.grid_size = self.training_config.cv_grid_size
         self.results.random_state = self.training_config.random_state
+        self.results.filtered_outliers = self.training_config.filter_y_outliers
 
         # Init a X an y dataframe with geometry, predictors, and target variable,
         # and drop rows and columns that contain only NA values
