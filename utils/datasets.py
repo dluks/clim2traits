@@ -32,6 +32,7 @@ class CollectionName(Enum):
     INAT = "iNaturalist Traits", "iNat_orig", "inat_orig"
     INAT_DGVM = "iNaturalist Traits (DGVM)", "iNat_DGVM", "inat_dgvm"
     INAT_GBIF = "iNaturalist Traits (GBIF)", "iNat_GBIF", "inat_gbif"
+    SPLOT = "sPlot Open Traits", "sPlotOpen", "splot"
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
         "MOD09GA.061_1km",
@@ -115,8 +116,12 @@ class Dataset:
         self.filter_outliers = filter_outliers
 
         # Transform is required for INAT datasets
-        if self.collection_name == CollectionName.INAT and not self.transform:
-            self.transform = "ln"
+        if (
+            self.collection_name == CollectionName.INAT
+            or self.collection_name == CollectionName.INAT_DGVM
+            or self.collection_name == CollectionName.SPLOT
+        ) and not self.transform:
+            self.transform = "exp_ln"
 
     @property
     def res_str(self) -> str:
@@ -135,6 +140,7 @@ class Dataset:
         if (
             self.collection_name == CollectionName.INAT
             or self.collection_name == CollectionName.INAT_DGVM
+            or self.collection_name == CollectionName.SPLOT
         ):
             search_str = os.path.join(
                 self.parent_dir,

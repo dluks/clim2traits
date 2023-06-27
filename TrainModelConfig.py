@@ -20,6 +20,7 @@ class TrainModelConfig:
         # iNaturalist
         self.iNat_dir = pathlib.Path("./iNaturalist_traits/maps_iNaturalist").absolute()
         self.iNat_name = CollectionName.INAT
+        self.splot_dir = pathlib.Path("./iNaturalist_traits/maps_sPlotOpen").absolute()
 
         # WorldClim
         self.WC_dir = pathlib.Path("./data/worldclim/bio/").absolute()

@@ -22,7 +22,7 @@ def prep_data(
     X_names: list = ["all"],
     Y_names: list = ["inat_gbif"],
     res: float = 0.5,
-    inat_transform: str = "exp_ln",
+    y_transform: str = "exp_ln",
 ) -> MLCollection:
     """Load data and prepare for training"""
     inat_orig = Dataset(
@@ -30,7 +30,7 @@ def prep_data(
         unit=Unit.DEGREE,
         parent_dir=config.iNat_dir,
         collection_name=config.iNat_name,
-        transform=inat_transform,
+        transform=y_transform,
     )
 
     inat_dgvm = Dataset(
@@ -40,7 +40,7 @@ def prep_data(
             "./iNaturalist_traits/maps_iNaturalist/DGVM/continuous_traits/"
         ),
         collection_name=CollectionName.INAT_DGVM,
-        transform=inat_transform,
+        transform=y_transform,
     )
 
     inat_gbif = Dataset(
@@ -49,6 +49,14 @@ def prep_data(
         parent_dir=Path("./iNaturalist_traits/maps_GBIF/traitmaps/TRY_gap_filled/"),
         collection_name=CollectionName.INAT_GBIF,
         filter_outliers=config.training_config.filter_y_outliers,
+    )
+
+    splot = Dataset(
+        res=0.5,
+        unit=Unit.DEGREE,
+        parent_dir=config.splot_dir,
+        collection_name=CollectionName.SPLOT,
+        transform=y_transform,
     )
 
     wc = Dataset(
@@ -82,7 +90,7 @@ def prep_data(
     )
 
     all_predictors = [wc, modis, soil, vodca]
-    all_rvs = [inat_orig, inat_dgvm, inat_gbif]
+    all_rvs = [inat_orig, inat_dgvm, inat_gbif, splot]
 
     if X_names == ["all"]:
         predictors = all_predictors
@@ -165,7 +173,7 @@ if __name__ == "__main__":
         pprint(config.__dict__)
 
     XY = prep_data(
-        X_names=args.X, Y_names=args.Y, res=args.res, inat_transform=args.inat_transform
+        X_names=args.X, Y_names=args.Y, res=args.res, y_transform=args.inat_transform
     )
 
     if args.debug:
