@@ -40,7 +40,7 @@ class CollectionName(Enum):
     )
     SOIL = "ISRIC World Soil Information", "ISRIC_soil", "soil"
     WORLDCLIM = "WorldClim Bioclimatic Variables", "WC_BIO", "wc"
-    VODCA = "VODCA", "VODCA", "vod"
+    VODCA = "VODCA", "VODCA", "vodca"
     OTHER = "Other", "other", "other"
 
 
