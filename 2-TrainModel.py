@@ -155,11 +155,17 @@ if __name__ == "__main__":
         default=None,
         help="Y indices to train. Usage: `--y_idx 0 3 23 24`. If None, train all",
     )
+    parser.add_argument(
+        "--filter-outliers", action="store_true", help="Filter out Y outliers"
+    )
     parser.add_argument("--debug", action="store_true", help="Debug mode")
 
     args = parser.parse_args()
 
     config = TrainModelConfig(debug=args.debug)
+
+    if not args.filter_outliers:
+        config.training_config.filter_y_outliers = None
 
     if args.debug:
         print(f"X", args.X)
