@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 
 
@@ -14,6 +16,13 @@ class Unit(Enum):
     METER = "meter", "m"
     KILOMETER = "kilometer", "km"
     MINUTE = "minute", "min"
+
+    @classmethod
+    def from_abbr(cls, abbr: str) -> Unit:
+        for unit in cls:
+            if unit.abbr == abbr:
+                return unit
+        raise ValueError(f"Unknown unit abbreviation: {abbr}")
 
 
 class FileExt(Enum):
