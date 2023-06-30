@@ -118,6 +118,7 @@ class Dataset:
         transform: str = "",
         bio_ids: list[str] = ["1", "4", "7", "12", "13", "14", "13-14", "15"],
         filter_outliers: list = [],
+        _fpaths: list[Path] = [],
     ):
         """Initialize a Dataset object with resolution, unit, and collection name.
 
@@ -148,6 +149,13 @@ class Dataset:
         self.filter_outliers = filter_outliers
 
         self.parent_dir = self.collection_name.parent_dir
+        self._fpaths = _fpaths
+
+        if _fpaths:
+            # Set the file extension according to that of the first file found (this could
+            # be an issue if multiple file extensions are present)
+            self.file_ext = FileExt(_fpaths[0].suffix[1:])
+
         # Transform is required for INAT datasets
         if (
             self.collection_name == CollectionName.INAT
@@ -203,7 +211,8 @@ class Dataset:
     @property
     def fpaths(self) -> list[str]:
         """Filenames for the dataset based on the collection name"""
-
+        if self._fpaths:
+            return [str(fpath) for fpath in self._fpaths]
         if self.collection_name == CollectionName.WORLDCLIM:
             all_fpaths = self._get_fpaths()
 
@@ -214,7 +223,7 @@ class Dataset:
             for bio_id in self.bio_ids:
                 first_part = f"wc2.1_{self.res_str}"
                 second_part = f"bio_{bio_id}"
-                fname = f"{first_part}_{second_part}.{self.file_ext.value}"
+                fname = f"{first_part}_{second_part}.tif"
                 fnames.append(fname)
 
             fpaths = []
@@ -226,9 +235,44 @@ class Dataset:
             if not fpaths:
                 raise FileNotFoundError("No files found!")
 
+            # Set the file extension according to that of the first file found (this could
+            # be an issue if multiple file extensions are present)
+            self.file_ext = FileExt(Path(fpaths[0]).suffix[1:])
             return sorted(fpaths)
 
         return self._get_fpaths()
+
+    def _get_fpaths(self) -> list[str]:
+        """Returns a list of filepaths for a given resolution string.
+
+        Returns:
+            list[str]: List of filepaths.
+        """
+        fpaths = sorted(glob.glob(self._search_str))
+
+        if not fpaths:
+            # Check for variations in the resolution string (e.g. 0.5deg vs 0.5_deg)
+            variations = [
+                self.res_str,
+                self.res_str.replace(".", ""),
+                self.res_str.replace("_", ""),
+                self.res_str.replace("_", "").replace(".", ""),
+            ]
+
+            for variation in variations:
+                fpaths = sorted(
+                    glob.glob(self._search_str.replace(self.res_str, variation))
+                )
+                if fpaths:
+                    break
+
+        if not fpaths:
+            raise FileNotFoundError(f"No files found for {self.collection_name}.")
+
+        # Set the file extension according to that of the first file found (this could
+        # be an issue if multiple file extensions are present)
+        self.file_ext = FileExt(Path(fpaths[0]).suffix[1:])
+        return fpaths
 
     @cached_property
     def epsg(self) -> int:
