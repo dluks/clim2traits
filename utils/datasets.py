@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Optional, Union
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 
 from utils.data_retrieval import gdf_from_list
@@ -69,6 +68,14 @@ class CollectionName(Enum):
     )
     VODCA = "VODCA", "VODCA", "vodca", Path("./data/vodca")
     OTHER = "Other", "other", "other", Path("./data/other")
+
+    @classmethod
+    def from_short(cls, short: str) -> CollectionName:
+        """Return the CollectionName enum value from the short name."""
+        for name in cls:
+            if name.short == short:
+                return name
+        raise ValueError(f"Invalid short name: {short}")
 
 
 class Dataset:
