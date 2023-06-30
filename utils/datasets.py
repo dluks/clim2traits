@@ -116,7 +116,7 @@ class Dataset:
         file_ext: FileExt = FileExt.ANY,
         collection_name: CollectionName = CollectionName.OTHER,
         transform: str = "",
-        bio_ids: list[str] = [],
+        bio_ids: list[str] = ["1", "4", "7", "12", "13", "14", "13-14", "15"],
         filter_outliers: list = [],
     ):
         """Initialize a Dataset object with resolution, unit, and collection name.
