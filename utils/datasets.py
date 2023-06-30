@@ -319,34 +319,50 @@ class Dataset:
     def cols(self) -> pd.Index:
         return self.df.columns.difference(["geometry"])
 
-    def _get_fpaths(self) -> list[str]:
-        """Returns a list of filepaths for a given resolution string.
+    @classmethod
+    def from_id(cls, id: str) -> Dataset:
+        """Returns a Dataset object from an identifier.
+
+        Args:
+            id (str): Dataset identifier.
 
         Returns:
-            list[str]: List of filepaths.
+            Dataset: Dataset object.
         """
-        fpaths = sorted(glob.glob(self._search_str))
+        res_str = "_".join(id.split("_")[-2:])
+        short = id.split(f"_{res_str}")[0]
+        collection_name = CollectionName.from_short(short)
+        res = float(res_str.split("_")[0])
+        unit = Unit.from_abbr(res_str.split("_")[1])
 
-        if not fpaths:
-            # Check for variations in the resolution string (e.g. 0.5deg vs 0.5_deg)
-            variations = [
-                self.res_str,
-                self.res_str.replace(".", ""),
-                self.res_str.replace("_", ""),
-                self.res_str.replace("_", "").replace(".", ""),
-            ]
+        return cls(
+            res=res,
+            unit=unit,
+            collection_name=collection_name,
+        )
 
-            for variation in variations:
-                fpaths = sorted(
-                    glob.glob(self._search_str.replace(self.res_str, variation))
-                )
-                if fpaths:
-                    break
+    @classmethod
+    def from_stem(cls, stem=str) -> Dataset:
+        """Returns a Dataset object from a filename stem.
+        Note: the returned Dataset will not have an accurate unit, resolution, or collection_name.
 
-        if not fpaths:
-            raise FileNotFoundError(f"No files found for {self.collection_name}.")
+        Args:
+            stem (str): Filename stem.
 
-        return fpaths
+        Returns:
+            Dataset: Dataset object.
+        """
+        file_exts = ["tif", "nc"]  # Only consider these file extensions
+        fpath = None
+        for file_ext in file_exts:
+            fpath = list(Path(".").glob(f"**/{stem}.{file_ext}"))
+            if fpath:
+                break
+        if not fpath:
+            raise FileNotFoundError(f"No files found for {stem}.")
+        return cls(
+            _fpaths=fpath,
+        )
 
 
 def resample_dataset(
