@@ -5,7 +5,6 @@
 # ## Imports and configuration
 
 import argparse
-from pathlib import Path
 from pprint import pprint
 
 from TrainModelConfig import TrainModelConfig
@@ -28,7 +27,6 @@ def prep_data(
     inat_orig = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        parent_dir=config.iNat_dir,
         collection_name=config.iNat_name,
         transform=y_transform,
     )
@@ -36,9 +34,6 @@ def prep_data(
     inat_dgvm = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        parent_dir=Path(
-            "./iNaturalist_traits/maps_iNaturalist/DGVM/continuous_traits/"
-        ),
         collection_name=CollectionName.INAT_DGVM,
         transform=y_transform,
     )
@@ -46,7 +41,6 @@ def prep_data(
     inat_gbif = Dataset(
         res=0.5,
         unit=Unit.DEGREE,
-        parent_dir=Path("./iNaturalist_traits/maps_GBIF/traitmaps/TRY_gap_filled/"),
         collection_name=CollectionName.INAT_GBIF,
         filter_outliers=config.training_config.filter_y_outliers,
     )
@@ -54,7 +48,6 @@ def prep_data(
     splot = Dataset(
         res=0.5,
         unit=Unit.DEGREE,
-        parent_dir=config.splot_dir,
         collection_name=CollectionName.SPLOT,
         transform=y_transform,
     )
@@ -62,7 +55,6 @@ def prep_data(
     wc = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        parent_dir=config.WC_dir,
         collection_name=config.WC_name,
         bio_ids=config.WC_bio_ids,
     )
@@ -70,21 +62,18 @@ def prep_data(
     modis = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        parent_dir=config.MODIS_dir,
         collection_name=config.MODIS_name,
     )
 
     soil = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        parent_dir=config.soil_dir,
         collection_name=config.soil_name,
     )
 
     vodca = Dataset(
         res=0.5,
         unit=Unit.DEGREE,
-        parent_dir=Path("./data/vodca/"),
         collection_name=CollectionName.VODCA,
         file_ext=FileExt.NETCDF4,
     )

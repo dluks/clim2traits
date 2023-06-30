@@ -22,26 +22,53 @@ from utils.training import TrainingConfig, TrainingRun
 class CollectionName(Enum):
     """Name of the dataset collection."""
 
-    def __new__(cls, value, short, abbr):
+    def __new__(cls, value, short, abbr, parent_dir):
         obj = object.__new__(cls)
         obj._value_ = value
         obj.short = short
         obj.abbr = abbr
+        obj.parent_dir = parent_dir
         return obj
 
-    INAT = "iNaturalist Traits", "iNat_orig", "inat_orig"
-    INAT_DGVM = "iNaturalist Traits (DGVM)", "iNat_DGVM", "inat_dgvm"
-    INAT_GBIF = "iNaturalist Traits (GBIF)", "iNat_GBIF", "inat_gbif"
-    SPLOT = "sPlot Open Traits", "sPlotOpen", "splot"
+    INAT = (
+        "iNaturalist Traits",
+        "iNat_orig",
+        "inat_orig",
+        Path("./iNaturalist_traits/maps_iNaturalist"),
+    )
+    INAT_DGVM = (
+        "iNaturalist Traits (DGVM)",
+        "iNat_DGVM",
+        "inat_dgvm",
+        Path("./iNaturalist_traits/maps_iNaturalist/DGVM/continuous_traits"),
+    )
+    INAT_GBIF = (
+        "iNaturalist Traits (GBIF)",
+        "iNat_GBIF",
+        "inat_gbif",
+        Path("./iNaturalist_traits/maps_GBIF/traitmaps/TRY_gap_filled"),
+    )
+    SPLOT = (
+        "sPlot Open Traits",
+        "sPlotOpen",
+        "splot",
+        Path("./iNaturalist_traits/maps_sPlotOpen"),
+    )
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
         "MOD09GA.061_1km",
         "modis",
+        Path("./data/modis"),
     )
-    SOIL = "ISRIC World Soil Information", "ISRIC_soil", "soil"
-    WORLDCLIM = "WorldClim Bioclimatic Variables", "WC_BIO", "wc"
-    VODCA = "VODCA", "VODCA", "vodca"
-    OTHER = "Other", "other", "other"
+    SOIL = "ISRIC World Soil Information", "ISRIC_soil", "soil", Path("./data/soil")
+    WORLDCLIM = (
+        "WorldClim Bioclimatic Variables",
+        "WC_BIO",
+        "wc",
+        Path("./data/worldclim/bio"),
+    )
+    VODCA = "VODCA", "VODCA", "vodca", Path("./data/vodca")
+    OTHER = "Other", "other", "other", Path("./data/other")
 
 
 class Dataset:
@@ -108,13 +135,13 @@ class Dataset:
         self.name = name
         self.res = res
         self.unit = unit
-        self.parent_dir = parent_dir
         self.file_ext = file_ext
         self.collection_name = collection_name
         self.transform = transform
         self.bio_ids = bio_ids
         self.filter_outliers = filter_outliers
 
+        self.parent_dir = self.collection_name.parent_dir
         # Transform is required for INAT datasets
         if (
             self.collection_name == CollectionName.INAT
