@@ -55,7 +55,7 @@ class CollectionName(Enum):
     )
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
-        "MOD09GA.061_1km",
+        "MOD09GA.061",
         "modis",
         Path("./data/modis"),
     )
