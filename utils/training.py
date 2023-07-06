@@ -433,12 +433,12 @@ def optimize_params(
     if verbose == 1:
         print("Optimizing parameters...")
     param_space = {
-        "n_estimators": tune.lograndint(100, 2000),
-        "max_depth": tune.randint(2, 6),
-        "subsample": tune.quniform(0.25, 0.75, 0.01),
-        "colsample_bytree": tune.quniform(0.05, 0.5, 0.01),
-        "colsample_bylevel": tune.quniform(0.05, 0.5, 0.01),
-        "learning_rate": tune.quniform(1e-3, 1e-1, 5e-4),
+        "n_estimators": tune.lograndint(255, 1273),
+        "max_depth": tune.randint(5, 10),
+        "subsample": tune.quniform(0.45, 0.7, 0.005),
+        "colsample_bytree": tune.quniform(0.2, 0.65, 0.01),
+        "colsample_bylevel": tune.quniform(0.2, 0.45, 0.005),
+        "learning_rate": tune.quniform(0.01, 0.05, 0.0005),
     }
 
     xgb_model = XGBRegressor(n_jobs=1, booster="gbtree")
