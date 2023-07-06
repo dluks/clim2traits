@@ -3,6 +3,7 @@
 ################################
 
 from pprint import pprint
+from typing import Optional
 
 import ee
 
@@ -63,7 +64,7 @@ def aggregate_ic(
         mn = grouped_ic.reduce(ee.Reducer.mean()).set("system:time_start", t).rename(bn)
         # Reset the scale because GEE overwrites the scale of reduced images to 1deg for
         # some reason...
-        mn = mn.setDefaultProjection(mn.projection(), scale=1000)
+        # mn = mn.setDefaultProjection(mn.projection(), scale=1000)
         return mn
 
     agg_ic = grouped_ic.map(reduce_mean)
@@ -73,7 +74,35 @@ def aggregate_ic(
     return agg_ic
 
 
-def bitwise_extract(image: ee.Image, from_bit: int, to_bit: int = None) -> ee.Image:
+def aggregate_ic_monthly(
+    ic: ee.ImageCollection, ds: str, de: str
+) -> ee.ImageCollection:
+    """Aggregates an ImageCollection of monthly averages to calendar month means"""
+
+    def reduce_months(month):
+        bn = (
+            ee.String(ic.first().bandNames().get(0))
+            .cat("_mean_m")
+            .cat(ee.Number(month).toInt8().format())
+        )
+
+        return (
+            ic.filter(ee.Filter.calendarRange(month, month, "month"))
+            .reduce(ee.Reducer.mean())
+            .set("system:index", ee.Number(month).toInt8().format())
+            .rename(bn)
+        )
+
+    months = ee.List.sequence(1, 12)
+    monthly_means = months.map(reduce_months)
+    monthly_means = ee.ImageCollection.fromImages(monthly_means)
+
+    return monthly_means
+
+
+def bitwise_extract(
+    image: ee.Image, from_bit: int, to_bit: Optional[int] = None
+) -> ee.Image:
     """Performs bitwise extraction for masking images from QA bands
 
     Args:
@@ -155,8 +184,9 @@ def export_image(
 def export_collection(
     collection: ee.ImageCollection,
     folder: str,
-    projection: dict = None,
-    scale: int = None,
+    projection: Optional[dict] = None,
+    scale: Optional[int] = None,
+    test: bool = False,
 ) -> None:
     """Export an ImageCollection to Drive
 
@@ -179,9 +209,13 @@ def export_collection(
     if not scale:
         scale = collection.first().projection().nominalScale().int().getInfo()
 
-    for i in range(num_images):
+    for i in range(num_images if not test else 1):
+        if i == 0:
+            # skip first image
+            continue
         image = ee.Image(image_list.get(i))
-        date = image.get("system:time_start")
-        date_name = ee.Date(date).format("YYYY-MM-dd").getInfo()
-        out_name = f"{prefix}_{date_name}_{str(scale)}m"
+        # date = image.get("system:time_start")
+        # date_name = ee.Date(date).format("YYYY-MM-dd").getInfo()
+        # out_name = f"{prefix}_{date_name}_{str(scale)}m"
+        out_name = f"2000-2004_sur_refl_b01-b05_multiyear_mean_m{image.get('system:index').getInfo()}"
         export_image(image, out_name, folder, projection, scale)
