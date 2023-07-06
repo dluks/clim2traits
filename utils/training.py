@@ -442,9 +442,6 @@ def optimize_params(
     }
 
     xgb_model = XGBRegressor(n_jobs=1, booster="gbtree")
-    start_time = datetime.now()
-    start = start_time.strftime("%Y-%m-%d_%H-%M-%S")
-    run_name = f"{start}_{col_name}"
 
     reg = TuneSearchCV(
         xgb_model,
@@ -456,7 +453,7 @@ def optimize_params(
         cv=cv,
         verbose=1,
         random_state=random_state,
-        name=run_name,
+        name=col_name,
         search_optimization=optimizer,
         max_iters=max_iters,
         local_dir=str(save_dir.absolute()),
