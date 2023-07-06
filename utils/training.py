@@ -4,6 +4,7 @@ import pathlib
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import cached_property
 from typing import TYPE_CHECKING, Iterable
 from typing import SupportsFloat as Numeric
 from typing import Tuple, Union
@@ -231,7 +232,7 @@ class TrainingRun:
         self.coords_train = tt_splits[4]
         self.coords_test = tt_splits[5]
 
-    @property
+    @cached_property
     def id(self) -> str:
         """Unique identifier for this training run"""
         if self.resume:
