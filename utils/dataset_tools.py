@@ -6,6 +6,10 @@ from enum import Enum
 class Unit(Enum):
     """Unit of measurement for the dataset."""
 
+    def __init__(self, value: str, abbr: str):
+        self._value_ = value
+        self.abbr = abbr
+
     def __new__(cls, value: str, abbr: str):
         obj = object.__new__(cls)
         obj._value_ = value

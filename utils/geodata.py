@@ -83,7 +83,7 @@ def print_shapes(
     print("Y shape:", Y.shape)
 
     if rows_dropped:
-        rows = abs(Y.shape[0] - X.shape[0])
+        rows = abs((Y.shape[0] - X.shape[0]))
         if rows == 0:
             print("Rows match\n")
         else:
@@ -91,8 +91,8 @@ def print_shapes(
 
 
 def drop_XY_NAs(
-    XY: Union[gpd.GeoDataFrame, pd.DataFrame, gpd.GeoSeries, pd.Series],
-    X_cols: pd.Index,
+    XY: Union[gpd.GeoDataFrame, pd.DataFrame],
+    X_cols: Union[pd.Index, str],
     Y_cols: Union[pd.Index, str],
     verbose: int = 0,
 ) -> Tuple[Union[gpd.GeoDataFrame, pd.DataFrame], pd.Index, Union[pd.Index, str]]:
@@ -168,7 +168,7 @@ def get_epsg(raster: Union[str, os.PathLike, xr.DataArray]) -> int:
 
 def validate_raster(
     raster: Union[str, os.PathLike, xr.DataArray]
-) -> Union[xr.Dataset, xr.DataArray, list[xr.Dataset]]:
+) -> Union[xr.Dataset, xr.DataArray]:
     """Validate a raster dataset.
 
     Args:
@@ -180,6 +180,8 @@ def validate_raster(
     if isinstance(raster, (str, os.PathLike)):
         name = os.path.splitext(os.path.basename(raster))[0]
         dataset = riox.open_rasterio(raster, masked=True, default_name=name)
+        if isinstance(dataset, list):
+            dataset = dataset[0]
         return dataset
 
     if not isinstance(raster, xr.DataArray):

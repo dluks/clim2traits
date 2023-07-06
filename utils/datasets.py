@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 import os
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
@@ -20,6 +21,12 @@ from utils.training import TrainingConfig, TrainingRun
 
 class CollectionName(Enum):
     """Name of the dataset collection."""
+
+    def __init__(self, value, short, abbr, parent_dir):
+        self._value_ = value
+        self.short = short
+        self.abbr = abbr
+        self.parent_dir = parent_dir
 
     def __new__(cls, value, short, abbr, parent_dir):
         obj = object.__new__(cls)
@@ -410,8 +417,7 @@ def resample_dataset(
 
 @dataclass
 class DataCollection:
-    """
-    Represents a collection of datasets.
+    """Represents a collection of datasets.
 
     Attributes:
         datasets (list[Dataset]): List of Dataset objects in the collection.
@@ -426,19 +432,18 @@ class DataCollection:
     datasets: list[Dataset]
 
     @cached_property
-    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame, pd.Series]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
         df = merge_dfs([dataset.df for dataset in self.datasets])
         return df
 
     @cached_property
-    def cols(self) -> pd.Index:
+    def cols(self) -> Union[pd.Index, str]:
         return self.df.columns.difference(["geometry"])
 
 
 class MLCollection:
-    """
-    Represents a collection of datasets for machine learning.
+    """Represents a collection of datasets for machine learning.
 
     Attributes:
         X (DataCollection): DataCollection object for X.
@@ -468,7 +473,7 @@ class MLCollection:
         self.training_runs = []
 
     @cached_property
-    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame, pd.Series]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
         return self.X.df.merge(self.Y.df, on="geometry")
 
@@ -505,7 +510,10 @@ class MLCollection:
         y_cols = self.Y.cols
 
         if y_idx:
-            y_cols = y_cols[y_idx]
+            if isinstance(y_cols, pd.Index):
+                y_cols = y_cols[y_idx]
+            else:
+                warnings.warn("Ignoring y_idx because Y.cols is a string.")
 
         if resume:
             results_csv = pd.read_csv(training_config.results_csv)
@@ -513,7 +521,10 @@ class MLCollection:
             run_id = run_ids.iloc[run_ids.last_valid_index()]  # type: ignore
             runs = results_csv.loc[results_csv["Run ID"] == run_id]
             completed_rvs = runs["Response variable"].values
-            y_cols = y_cols.difference(completed_rvs)
+            if isinstance(y_cols, pd.Index):
+                y_cols = y_cols.difference(completed_rvs)
+            elif y_cols in completed_rvs:
+                raise ValueError("Response variable provided already completed.")
 
         for i, y_col in enumerate(y_cols):
             if not resume:
