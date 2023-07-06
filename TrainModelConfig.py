@@ -15,7 +15,7 @@ class TrainModelConfig:
         self.SAVE_AUTOCORRELATION_RANGES = False
         self.RNG_STATE = 42
         self.TRAIN_MODE = True
-        self.debug = debug
+        self.DEBUG = debug
 
         # iNaturalist
         self.iNat_dir = pathlib.Path("./iNaturalist_traits/maps_iNaturalist").absolute()
@@ -80,7 +80,7 @@ class TrainModelConfig:
             filter_y_outliers=[0.01, 0.99],
         )
 
-        if self.debug:
+        if self.DEBUG:
             # Define test mode TrainingConfig
             self.training_config.cv_n_groups = 2
             self.training_config.search_n_trials = 2
