@@ -62,7 +62,6 @@ def aggregate_ic(
         grouped_ic = ee.ImageCollection(grouped_ic)
         t = grouped_ic.get("system:time_start")
         mn = grouped_ic.reduce(ee.Reducer.mean()).set("system:time_start", t).rename(bn)
-
         return mn
 
     agg_ic = grouped_ic.map(reduce_mean)
