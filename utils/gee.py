@@ -3,6 +3,7 @@
 ################################
 
 from pprint import pprint
+from typing import Optional
 
 import ee
 
@@ -73,7 +74,9 @@ def aggregate_ic(
     return agg_ic
 
 
-def bitwise_extract(image: ee.Image, from_bit: int, to_bit: int = None) -> ee.Image:
+def bitwise_extract(
+    image: ee.Image, from_bit: int, to_bit: Optional[int] = None
+) -> ee.Image:
     """Performs bitwise extraction for masking images from QA bands
 
     Args:
@@ -155,8 +158,8 @@ def export_image(
 def export_collection(
     collection: ee.ImageCollection,
     folder: str,
-    projection: dict = None,
-    scale: int = None,
+    projection: Optional[dict] = None,
+    scale: Optional[int] = None,
 ) -> None:
     """Export an ImageCollection to Drive
 
