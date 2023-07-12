@@ -4,3 +4,6 @@
 [submodule "iNaturalist_traits"]
 	path = iNaturalist_traits
 	url = https://github.com/dluks/iNaturalist_traits
+[submodule "GBIF_trait_maps"]
+	path = GBIF_trait_maps
+	url = git@github.com:dluks/GBIF_trait_maps.git
