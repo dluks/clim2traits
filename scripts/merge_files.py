@@ -5,15 +5,13 @@ import os
 from osgeo import gdal, gdalconst
 from tqdm import tqdm
 
-from utils.geodata import catch_gdal
-
-dd = "./data/modis/gee/"
+dd = "/DATA/lusk/thesis/traits/data/modis/gee/multiband_monthly_averages"
 files = sorted(glob.glob(os.path.join(dd, "*.tif")))
 
 kwargs = {
     "format": "GTiff",
     "outputType": gdalconst.GDT_Int16,
-    "srcNodata": "nan",
+    "srcNodata": -32768,
     "dstNodata": -32768,
     "multithread": True,
     "creationOptions": [
@@ -25,7 +23,7 @@ kwargs = {
 }
 
 
-@catch_gdal
+# @catch_gdal
 def gdal_warp(out_fn, pair, kwargs):
     ds = gdal.Warp(out_fn, pair, **kwargs)
     return ds

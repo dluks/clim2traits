@@ -207,12 +207,7 @@ def export_collection(
         scale = collection.first().projection().nominalScale().int().getInfo()
 
     for i in range(num_images if not test else 1):
-        if i == 0:
-            # skip first image
-            continue
         image = ee.Image(image_list.get(i))
-        # date = image.get("system:time_start")
-        # date_name = ee.Date(date).format("YYYY-MM-dd").getInfo()
-        # out_name = f"{prefix}_{date_name}_{str(scale)}m"
         out_name = f"2000-2004_sur_refl_b01-b05_multiyear_mean_m{image.get('system:index').getInfo()}"
+        print(f"Exporting {out_name} with scale {scale} m")
         export_image(image, out_name, folder, projection, scale)
