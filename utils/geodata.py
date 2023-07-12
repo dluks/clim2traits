@@ -12,6 +12,22 @@ import xarray as xr
 from rasterio.enums import Resampling
 
 
+def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
+    """Converts an xarray dataset to a geopandas dataframe
+
+    Args:
+        ds (xarray.DataArray): Dataset to convert
+
+    Returns:
+        geopandas.GeoDataFrame: GeoPandas dataframe
+    """
+    df = ds.to_dataframe().reset_index()
+    geometry = gpd.points_from_xy(df.x, df.y)
+    gdf = gpd.GeoDataFrame(data=df, crs=ds.rio.crs, geometry=geometry)
+
+    return gdf
+
+
 def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
     """Converts a GeoTIFF to a GeoPandas data frame. Accepts either the filename of a
     GeoTiff or an xr dataset.
@@ -23,14 +39,26 @@ def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
     Returns:
         geopandas.GeoDataFrame: GeoPandas data frame
     """
-    dataset = validate_raster(raster)
+    ds = validate_raster(raster)
 
-    if len(dataset) > 1:
-        raise ValueError("raster must be a single-band dataset.")
+    band_gdfs = []
 
-    df = dataset.squeeze().to_dataframe().reset_index()
-    geometry = gpd.points_from_xy(df.x, df.y)
-    gdf = gpd.GeoDataFrame(df, crs=dataset.rio.crs, geometry=geometry)
+    for band in ds.band.values:
+        band_ds = ds.sel(band=band)
+        if ds.band.values.size > 1:
+            band_ds.name = f"{ds.name}_band{band:02d}"
+        band_gdfs.append(ds2gdf(band_ds))
+        # band_df = band_ds.to_dataframe().reset_index()
+        # geometry = gpd.points_from_xy(band_df.x, band_df.y)
+        # band_gdf = gpd.GeoDataFrame(data=band_df, crs=ds.rio.crs, geometry=geometry)
+        # band_gdfs.append(band_gdf)
+
+    if len(band_gdfs) > 1:
+        gdf = merge_dfs(band_gdfs)
+    elif len(band_gdfs) == 0:
+        raise ValueError("No bands found in raster.")
+    else:
+        gdf = band_gdfs[0]
 
     return gdf
 
