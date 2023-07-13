@@ -151,7 +151,7 @@ class Dataset:
         collection_name: CollectionName = CollectionName.OTHER,
         band: Optional[GBIFBand] = None,
         transform: str = "",
-        bio_ids: list[str] = ["1", "4", "7", "12", "13", "14", "13-14", "15"],
+        bio_ids: list[str] = ["1", "4", "7", "12", "13-14", "15"],
         filter_outliers: list = [],
         _fpaths: list[Path] = [],
     ):
