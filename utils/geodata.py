@@ -226,7 +226,7 @@ def netcdf2gdf(da: xr.DataArray, data_label: str, name: str) -> gpd.GeoDataFrame
     df = df.reset_index()
     df = df.rename(columns={"lon": "x", "lat": "y"})
     df = df.dropna(subset=["x", "y"])
-    df = df.drop(columns=["time"])
+    df = df.drop(columns=["month"])
     df = df.rename(columns={data_label: name})
     geometry = gpd.points_from_xy(df.x, df.y)
     df = gpd.GeoDataFrame(df, geometry=geometry)
@@ -256,11 +256,13 @@ def ts_netcdf2gdfs(
     data_label = str(list(ds.keys())[0])  # assume that the first variable is the data
 
     for da in ds[data_label]:
-        date = pd.to_datetime(str(da.time.values)).strftime("%Y-%m-%d")
+        month = int(da.month.values)
 
-        da_name = (
-            f"{ds_name}_{data_label}_{date}" if ds_name else f"{data_label}_{date}"
-        )
+        if ds_name:
+            da_name = f"{ds_name}_{data_label}_m{month:02d}"
+        else:
+            da_name = f"{data_label}_m{month:02d}"
+
         df = netcdf2gdf(da, data_label, da_name)
         gdfs.append(df)
 
