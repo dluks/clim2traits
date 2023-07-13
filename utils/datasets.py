@@ -326,6 +326,7 @@ class Dataset:
 
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+        """Returns a dataframe of the dataset."""
         if self.collection_name == CollectionName.VODCA:
             ds_name = self.collection_name.abbr
         else:
