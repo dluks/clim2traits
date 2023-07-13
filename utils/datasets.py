@@ -200,18 +200,18 @@ class Dataset:
         ) and not self.transform:
             self.transform = "exp_ln"
 
-    @property
+    @cached_property
     def res_str(self) -> str:
         """Returns the resolution identifier as used in the dataset."""
         return f"{self.res:g}_{self.unit.abbr}"
 
-    @property
+    @cached_property
     def id(self) -> str:
         """Returns the dataset identifier."""
         band_str = f"_{self.band.readable}" if self.band else ""
         return f"{self.collection_name.short}{band_str}_{self.res_str}"
 
-    @property
+    @cached_property
     def _search_str(self) -> str:
         """Returns the search string for the dataset."""
         search_str = ""
@@ -254,7 +254,7 @@ class Dataset:
             )
         return search_str
 
-    @property
+    @cached_property
     def fpaths(self) -> list[str]:
         """Filenames for the dataset based on the collection name"""
         if self._fpaths:
