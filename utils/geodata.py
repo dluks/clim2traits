@@ -24,6 +24,7 @@ def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
     df = ds.to_dataframe().reset_index()
     geometry = gpd.points_from_xy(df.x, df.y)
     gdf = gpd.GeoDataFrame(data=df, crs=ds.rio.crs, geometry=geometry)
+    gdf = gdf.drop(columns=["band", "spatial_ref"])
 
     return gdf
 
