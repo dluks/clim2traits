@@ -9,7 +9,13 @@ from pprint import pprint
 
 from TrainModelConfig import TrainModelConfig
 from utils.dataset_tools import FileExt, Unit
-from utils.datasets import CollectionName, DataCollection, Dataset, MLCollection
+from utils.datasets import (
+    CollectionName,
+    DataCollection,
+    Dataset,
+    GBIFBand,
+    MLCollection,
+)
 
 config = TrainModelConfig()
 
@@ -21,42 +27,29 @@ def prep_data(
     X_names: list = ["all"],
     Y_names: list = ["inat_gbif"],
     res: float = 0.5,
-    y_transform: str = "exp_ln",
 ) -> MLCollection:
     """Load data and prepare for training"""
-    inat_orig = Dataset(
+
+    gbif = Dataset(
         res=res,
         unit=Unit.DEGREE,
-        collection_name=config.iNat_name,
-        transform=y_transform,
-    )
-
-    inat_dgvm = Dataset(
-        res=res,
-        unit=Unit.DEGREE,
-        collection_name=CollectionName.INAT_DGVM,
-        transform=y_transform,
-    )
-
-    inat_gbif = Dataset(
-        res=0.5,
-        unit=Unit.DEGREE,
-        collection_name=CollectionName.INAT_GBIF,
-        filter_outliers=config.training_config.filter_y_outliers,
+        collection_name=CollectionName.GBIF,
+        band=GBIFBand.MEAN,
+        file_ext=FileExt.GRID,
     )
 
     splot = Dataset(
-        res=0.5,
+        res=res,
         unit=Unit.DEGREE,
         collection_name=CollectionName.SPLOT,
-        transform=y_transform,
+        band=GBIFBand.MEAN,
+        file_ext=FileExt.GRID,
     )
 
     wc = Dataset(
         res=res,
         unit=Unit.DEGREE,
         collection_name=config.WC_name,
-        bio_ids=config.WC_bio_ids,
     )
 
     modis = Dataset(
@@ -79,7 +72,7 @@ def prep_data(
     )
 
     all_predictors = [wc, modis, soil, vodca]
-    all_rvs = [inat_orig, inat_dgvm, inat_gbif, splot]
+    all_rvs = [gbif, splot]
 
     if X_names == ["all"]:
         predictors = all_predictors
@@ -121,9 +114,7 @@ def prep_data(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--X", nargs="+", type=str, default=["all"], help="X datasets")
-    parser.add_argument(
-        "--Y", nargs="+", type=str, default=["inat_gbif"], help="Y datasets"
-    )
+    parser.add_argument("--Y", nargs="+", type=str, default=["gbif"], help="Y datasets")
     parser.add_argument(
         "--res", type=float, default=0.5, help="Resolution of the datasets"
     )
@@ -167,9 +158,7 @@ if __name__ == "__main__":
         print(f"Config:")
         pprint(config.__dict__)
 
-    XY = prep_data(
-        X_names=args.X, Y_names=args.Y, res=args.res, y_transform=args.inat_transform
-    )
+    XY = prep_data(X_names=args.X, Y_names=args.Y, res=args.res)
 
     if args.debug:
         print("X datasets:")

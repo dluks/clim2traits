@@ -29,13 +29,16 @@ def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
     return gdf
 
 
-def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
+def tif2gdf(
+    raster: Union[str, xr.DataArray], band_id: Optional[int] = None
+) -> gpd.GeoDataFrame:
     """Converts a GeoTIFF to a GeoPandas data frame. Accepts either the filename of a
     GeoTiff or an xr dataset.
 
     Args:
         raster (str || xarray.DataArray): Filename of the GeoTIFF raster or the opened
-        raster itself.
+            raster itself.
+        band (Optional[int], optional): Band number. Defaults to None.
 
     Returns:
         geopandas.GeoDataFrame: GeoPandas data frame
@@ -44,15 +47,20 @@ def tif2gdf(raster: Union[str, xr.DataArray]) -> gpd.GeoDataFrame:
 
     band_gdfs = []
 
-    for band in ds.band.values:
-        band_ds = ds.sel(band=band)
-        if ds.band.values.size > 1:
-            band_ds.name = f"{ds.name}_band{band:02d}"
+    if band_id:
+        if "long_name" in ds.attrs.keys():
+            band_name = ds.attrs["long_name"][band_id - 1]  # Band ints aren't 0-indexed
+        else:
+            band_name = f"_band{band_id:02d}"
+        band_ds = ds.sel(band=band_id)
+        band_ds.name = f"{ds.name}_{band_name}"
         band_gdfs.append(ds2gdf(band_ds))
-        # band_df = band_ds.to_dataframe().reset_index()
-        # geometry = gpd.points_from_xy(band_df.x, band_df.y)
-        # band_gdf = gpd.GeoDataFrame(data=band_df, crs=ds.rio.crs, geometry=geometry)
-        # band_gdfs.append(band_gdf)
+    else:
+        for band in ds.band.values:
+            band_ds = ds.sel(band=band)
+            if ds.band.values.size > 1:
+                band_ds.name = f"{ds.name}_band{band:02d}"
+            band_gdfs.append(ds2gdf(band_ds))
 
     if len(band_gdfs) > 1:
         gdf = merge_dfs(band_gdfs)

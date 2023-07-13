@@ -52,13 +52,19 @@ class CollectionName(Enum):
         "iNaturalist Traits (GBIF)",
         "iNat_GBIF",
         "inat_gbif",
-        Path("./iNaturalist_traits/maps_GBIF/traitmaps/TRY_gap_filled"),
+        Path("./iNaturalist_traits/maps_iNaturalist/GBIF/continuous_traits"),
+    )
+    GBIF = (
+        "GBIF Traits (TRY Gap-Filled, outliers removed)",
+        "GBIF",
+        "gbif",
+        Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
     )
     SPLOT = (
         "sPlot Open Traits",
         "sPlotOpen",
         "splot",
-        Path("./iNaturalist_traits/maps_sPlotOpen"),
+        Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
     )
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
@@ -83,6 +89,27 @@ class CollectionName(Enum):
             if name.short == short:
                 return name
         raise ValueError(f"Invalid short name: {short}")
+
+
+class GBIFBand(Enum):
+    """Band names for GBIF data."""
+
+    def __init__(self, band_id, readable):
+        self._value_ = band_id
+        self.readable = readable
+
+    def __new__(cls, band_id, readable):
+        obj = object.__new__(cls)
+        obj._value_ = band_id
+        obj.readable = readable
+        return obj
+
+    COUNT = 1, "obs_count"
+    MEAN = 2, "mean"
+    MEDIAN = 3, "median"
+    STD = 4, "std"
+    Q05 = 5, "q05"
+    Q95 = 6, "q95"
 
 
 class Dataset:
@@ -122,6 +149,7 @@ class Dataset:
         unit: Unit = Unit("degree"),
         file_ext: FileExt = FileExt.ANY,
         collection_name: CollectionName = CollectionName.OTHER,
+        band: Optional[GBIFBand] = None,
         transform: str = "",
         bio_ids: list[str] = ["1", "4", "7", "12", "13", "14", "13-14", "15"],
         filter_outliers: list = [],
@@ -151,6 +179,7 @@ class Dataset:
         self.unit = unit
         self.file_ext = file_ext
         self.collection_name = collection_name
+        self.band = band
         self.transform = transform
         self.bio_ids = bio_ids
         self.filter_outliers = filter_outliers
@@ -179,7 +208,8 @@ class Dataset:
     @property
     def id(self) -> str:
         """Returns the dataset identifier."""
-        return f"{self.collection_name.short}_{self.res_str}"
+        band_str = f"_{self.band.readable}" if self.band else ""
+        return f"{self.collection_name.short}{band_str}_{self.res_str}"
 
     @property
     def _search_str(self) -> str:
@@ -188,7 +218,6 @@ class Dataset:
         if (
             self.collection_name == CollectionName.INAT
             or self.collection_name == CollectionName.INAT_DGVM
-            or self.collection_name == CollectionName.SPLOT
         ):
             search_str = os.path.join(
                 self.parent_dir,
@@ -197,6 +226,16 @@ class Dataset:
                 f"*.{self.file_ext.value}",
             )
         elif self.collection_name == CollectionName.INAT_GBIF:
+            search_str = os.path.join(
+                self.parent_dir,
+                self.res_str,
+                f"GBIF*.{self.file_ext.value}",
+            )
+        elif self.collection_name == CollectionName.SPLOT:
+            search_str = os.path.join(
+                self.parent_dir, self.res_str, f"sPlot*.{self.file_ext.value}"
+            )
+        elif self.collection_name == CollectionName.GBIF:
             search_str = os.path.join(
                 self.parent_dir,
                 self.res_str,
@@ -291,8 +330,15 @@ class Dataset:
             ds_name = self.collection_name.abbr
         else:
             ds_name = None
-        df = gdf_from_list(fns=self.fpaths, ds_name=ds_name)
+
+        df = gdf_from_list(
+            fns=self.fpaths,
+            ds_name=ds_name,
+            band=self.band.value if self.band else None,
+        )
+
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
+
         if self.filter_outliers:
             df = self._filter_outliers(df, self.filter_outliers)
         return df
