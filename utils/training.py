@@ -5,7 +5,7 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Optional
 from typing import SupportsFloat as Numeric
 from typing import Tuple, Union
 
@@ -53,7 +53,7 @@ class TrainingResults:
     cv_block_buffer: Numeric = 0.0
     grid_size: Numeric = 0.0
     random_state: int = 0
-    filtered_outliers: list = field(default_factory=list)
+    filtered_outliers: Optional[list] = None
 
     def to_df(self) -> pd.DataFrame:
         """Converts the results to a pandas DataFrame."""
@@ -120,7 +120,7 @@ class TrainingConfig:
     results_dir: pathlib.Path = pathlib.Path("./results")
     results_csv: pathlib.Path = pathlib.Path(results_dir) / "training_results.csv"
     random_state: int = 42
-    filter_y_outliers: list = field(default_factory=list)
+    filter_y_outliers: Optional[list] = None
 
 
 class TrainingRun:
