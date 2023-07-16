@@ -123,6 +123,14 @@ class GBIFBand(Enum):
     Q05 = 5, "q05"
     Q95 = 6, "q95"
 
+    @classmethod
+    def from_readable(cls, readable: str) -> GBIFBand:
+        """Return the GBIFBand enum value from the readable name."""
+        for band in cls:
+            if band.readable == readable:
+                return band
+        raise ValueError(f"Invalid readable name: {readable}")
+
 
 class Dataset:
     """
@@ -386,7 +394,7 @@ class Dataset:
         return self.df.columns.difference(["geometry"])
 
     @classmethod
-    def from_id(cls, id: str) -> Dataset:
+    def from_id(cls, id: str, band: Optional[str] = None) -> Dataset:
         """Returns a Dataset object from an identifier.
 
         Args:
@@ -400,12 +408,9 @@ class Dataset:
         collection_name = CollectionName.from_short(short)
         res = float(res_str.split("_")[0])
         unit = Unit.from_abbr(res_str.split("_")[1])
+        ds_band = GBIFBand.from_readable(band) if band else None
 
-        return cls(
-            res=res,
-            unit=unit,
-            collection_name=collection_name,
-        )
+        return cls(res=res, unit=unit, collection_name=collection_name, band=ds_band)
 
     @classmethod
     def from_stem(cls, stem=str) -> Dataset:
