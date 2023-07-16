@@ -49,9 +49,21 @@ class CollectionName(Enum):
         Path("./iNaturalist_traits/maps_iNaturalist/DGVM/continuous_traits"),
     )
     INAT_GBIF = (
-        "iNaturalist Traits (GBIF)",
+        "GBIF Traits (TRY Gap-Filled)",
         "iNat_GBIF",
         "inat_gbif",
+        Path("./iNaturalist_traits/maps_iNaturalist/GBIF/continuous_traits"),
+    )
+    INAT_SPLOT = (
+        "sPlot Traits (TRY Non-Gap-Filled)",
+        "iNat_sPlot",
+        "inat_splot",
+        Path("./iNaturalist_traits/maps_sPlotOpen"),
+    )
+    INAT_SPLOT_GF = (
+        "sPlot Traits (TRY Gap-Filled)",
+        "sPlot_GF",
+        "inat_splot_gf",
         Path("./iNaturalist_traits/maps_iNaturalist/GBIF/continuous_traits"),
     )
     GBIF = (
@@ -61,7 +73,7 @@ class CollectionName(Enum):
         Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
     )
     SPLOT = (
-        "sPlot Open Traits",
+        "sPlotOpen Traits (TRY Gap-Filled)",
         "sPlotOpen",
         "splot",
         Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
