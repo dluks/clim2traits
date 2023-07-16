@@ -36,6 +36,7 @@ class TrainingResults:
     rv: str = ""
     n_obs: int = 0
     run_id: str = ""
+    rv_ds: list = field(default_factory=list)
     pred_ds: list = field(default_factory=list)
     res: str = "0.5_deg"
     params: dict = field(default_factory=dict)
@@ -62,6 +63,7 @@ class TrainingResults:
                 "Run ID": self.run_id,
                 "Response variable": self.rv,
                 "N observations": self.n_obs,
+                "RV datasets": [self.rv_ds],
                 "Predictor datasets": [self.pred_ds],
                 "Resolution": self.res,
                 "Best parameters": [self.params],
@@ -184,6 +186,7 @@ class TrainingRun:
         self.results = TrainingResults()  # Initialize TrainingResults object
 
         # Store the IDs of the datasets used as predictors
+        self.results.rv_ds = [dataset.id for dataset in XY.Y.datasets]
         self.results.pred_ds = [dataset.id for dataset in XY.X.datasets]
         self.results.rv = self.y_col
         self.results.run_id = self.id
