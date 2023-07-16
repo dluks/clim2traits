@@ -256,6 +256,11 @@ class Dataset:
                 self.parent_dir, self.res_str, f"sPlot*.{self.file_ext.value}"
             )
         elif self.collection_name == CollectionName.GBIF:
+            if self.file_ext == FileExt.ANY:
+                # Set file extension to .grd for GBIF data
+                # TODO: This is a hacky solution. Should probably rethink file ext
+                # property assignment altogether.
+                self.file_ext = FileExt.GRID
             search_str = os.path.join(
                 self.parent_dir,
                 self.res_str,
@@ -352,6 +357,9 @@ class Dataset:
         else:
             ds_name = None
 
+        if self.collection_name == CollectionName.GBIF and not self.band:
+            raise ValueError("Band must be specified for GBIF data.")
+
         df = gdf_from_list(
             fns=self.fpaths,
             ds_name=ds_name,
@@ -423,7 +431,7 @@ class Dataset:
         Returns:
             Dataset: Dataset object.
         """
-        file_exts = ["tif", "nc"]  # Only consider these file extensions
+        file_exts = ["tif", "nc", "grd"]  # Only consider these file extensions
         fpath = None
         for file_ext in file_exts:
             fpath = list(Path(".").glob(f"**/{stem}.{file_ext}"))
