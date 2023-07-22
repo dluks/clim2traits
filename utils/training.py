@@ -12,16 +12,13 @@ from typing import Tuple, Union
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import spacv
 from ray import tune
 from ray.tune.sklearn import TuneSearchCV
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import (
-    BaseCrossValidator,
-    cross_val_score,
-    train_test_split,
-)
+from sklearn.model_selection import BaseCrossValidator, cross_validate, train_test_split
 from xgboost import XGBRegressor
+
+from utils.spatial_stats import block_cv_splits
 
 if TYPE_CHECKING:
     from utils.datasets import MLCollection
@@ -53,6 +50,7 @@ class TrainingResults:
     cv_n_groups: int = 0
     cv_block_buffer: Numeric = 0.0
     grid_size: Numeric = 0.0
+    fold_indices: list = field(default_factory=list)
     random_state: int = 0
     filtered_outliers: Optional[list] = None
 
@@ -80,6 +78,7 @@ class TrainingResults:
                 "N CV groups": self.cv_n_groups,
                 "CV grid size [m]": self.grid_size,
                 "CV block buffer": self.cv_block_buffer,
+                "CV fold indices": [self.fold_indices],
                 "Random seed": self.random_state,
                 "Filtered RV outliers": [self.filtered_outliers],
             }
@@ -103,6 +102,7 @@ class TrainingConfig:
         search_n_trials (int, optional): Number of hyperparameter search
             trials. Defaults to 100.
         optimizer (str, optional): Hyperparameter optimization algorithm.
+        params (dict, optional): Hyperparameter search space. Defaults to {}.
         n_jobs (int, optional): Number of parallel jobs. Defaults to -1.
         results_dir (pathlib.Path, optional): Path to the directory to save
             training results. Defaults to "./results".
@@ -117,6 +117,7 @@ class TrainingConfig:
     cv_block_buffer: float = 0.0
     search_n_trials: int = 100
     optimizer: str = "hyperopt"
+    params: dict = field(default_factory=dict)
     max_iters: int = 1
     n_jobs: int = -1
     results_dir: pathlib.Path = pathlib.Path("./results")
@@ -191,6 +192,7 @@ class TrainingRun:
         self.results.rv = self.y_col
         self.results.run_id = self.id
         self.results.res = self.XY.X.datasets[0].res_str
+        self.results.params = self.training_config.params
         self.results.search_n_trials = self.training_config.search_n_trials
         self.results.optimizer = self.training_config.optimizer
         self.results.max_iters = self.training_config.max_iters
@@ -262,10 +264,10 @@ class TrainingRun:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    @property
+    @cached_property
     def spatial_cv(self) -> Iterable[Tuple[npt.NDArray, npt.NDArray]]:
         """Spatial CV iterator"""
-        return block_cv_splits(
+        cv = block_cv_splits(
             X=self.X_train,
             coords=self.coords_train,
             grid_size=self.training_config.cv_grid_size,
@@ -273,6 +275,9 @@ class TrainingRun:
             n_groups=self.training_config.cv_n_groups,
             random_state=self.training_config.random_state,
         )
+        fold_indices = list(cv)
+        self.results.fold_indices = fold_indices
+        return fold_indices
 
     def tune_params_cv(self):
         """Tune model hyperparameters with spatial CV and save results"""
@@ -294,6 +299,26 @@ class TrainingRun:
         cv_r2, cv_r2_std = r2s.mean(), r2s.std()
 
         self.results.params = params
+        self.results.cv_nrmse = cv_nrmse
+        self.results.cv_nrmse_std = cv_nrmse_std
+        self.results.cv_r2 = cv_r2
+        self.results.cv_r2_std = cv_r2_std
+
+    def train_cv(self) -> None:
+        """Train model with spatial CV and save results"""
+        cv_results = train_model_cv(
+            model_params=self.results.params,
+            X=self.X_train,
+            y=self.y_train,
+            cv=self.spatial_cv,
+            n_jobs=self.training_config.n_jobs,
+            verbose=1,
+        )
+
+        rmses, r2s = cv_results["test_rmse"], cv_results["test_r2"]
+        cv_nrmse, cv_nrmse_std = normalize_to_range(-rmses, self.y_range)
+        cv_r2, cv_r2_std = r2s.mean(), r2s.std()
+
         self.results.cv_nrmse = cv_nrmse
         self.results.cv_nrmse_std = cv_nrmse_std
         self.results.cv_r2 = cv_r2
@@ -330,52 +355,6 @@ class TrainingRun:
             fn=self.training_config.results_csv,
             df=self.results.to_df(),
         )
-
-
-def block_cv_splits(
-    X: npt.NDArray,
-    coords: pd.Series,
-    grid_size: float,
-    buffer_radius=0.01,
-    n_groups: int = 10,
-    random_state: int = 42,
-    verbose: int = 0,
-) -> Iterable[Tuple[npt.NDArray, npt.NDArray]]:
-    """Define spatial folds for cross-validation
-
-    Args:
-        X (NDArray): X training data
-        coords (pd.Series): Coordinates of training data
-        grid_size (float): Size of grid in degrees
-        buffer_radius (float, optional): Buffer radius in degrees. Defaults to 0.01.
-        n_groups (int, optional): Number of groups to split into. Defaults to 10.
-        random_state (int, optional): Random state. Defaults to 42.
-        verbose (int, optional): Verbosity. Defaults to 0.
-
-    Returns:
-        Iterable[Tuple[NDArray, NDArray]]: Spatial folds
-    """
-    if verbose == 1:
-        print("Defining spatial folds...")
-    tiles_x = int(np.round(360 / grid_size))
-    tiles_y = int(np.round(180 / grid_size))
-
-    hblock = spacv.HBLOCK(
-        tiles_x,
-        tiles_y,
-        shape="hex",
-        method="optimized_random",
-        buffer_radius=buffer_radius,
-        n_groups=n_groups,
-        data=X,
-        n_sims=50,
-        distance_metric="haversine",
-        random_state=random_state,
-    )
-
-    splits = hblock.split(coords)
-
-    return splits
 
 
 def normalize_to_range(x: npt.NDArray, range: float) -> Tuple[float, float]:
@@ -470,10 +449,10 @@ def train_model_cv(
     model_params: dict,
     X: npt.NDArray,
     y: npt.NDArray,
-    cv,
+    cv: Union[BaseCrossValidator, Iterable[Tuple[npt.NDArray, npt.NDArray]]],
     n_jobs: int = -1,
     verbose: int = 0,
-) -> Tuple[Numeric, Numeric, npt.NDArray]:
+) -> dict:
     """Train the model with cross-validation and return performance metrics.
 
     Args:
@@ -491,23 +470,32 @@ def train_model_cv(
         print("Assessing model performance with spatial CV...")
 
     print("Params:", model_params)
-    print("Params type:", type(model_params))
 
-    model = XGBRegressor(**model_params, booster="gbtree")
+    model = XGBRegressor(**model_params, booster="gbtree", n_jobs=1)
 
-    scores = -cross_val_score(
-        model,
-        X,
-        y,
+    # scores = -cross_val_score(
+    #     model,
+    #     X,
+    #     y,
+    #     cv=cv,
+    #     n_jobs=n_jobs,
+    #     verbose=verbose,
+    #     scoring="neg_root_mean_squared_error",
+    # )
+
+    cv_results = cross_validate(
+        estimator=model,
+        X=X,
+        y=y,
+        scoring={"rmse": "neg_root_mean_squared_error", "r2": "r2"},
         cv=cv,
         n_jobs=n_jobs,
-        verbose=0,
-        scoring="neg_root_mean_squared_error",
+        verbose=verbose,
     )
+    # mean_rmse, std = np.sqrt(scores).mean(), np.sqrt(scores).std()
 
-    mean_rmse, std = np.sqrt(scores).mean(), np.sqrt(scores).std()
-
-    return mean_rmse, std, scores
+    # return mean_rmse, std, scores
+    return cv_results
 
 
 def train_model_full(

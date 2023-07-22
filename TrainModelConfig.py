@@ -64,6 +64,16 @@ class TrainModelConfig:
         # make the directory if it doesn't exist
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
+        # Model training hyperparameters
+        params = {
+            "n_estimators": 501,
+            "max_depth": 9,
+            "subsample": 0.65,
+            "colsample_bytree": 0.36,
+            "colsample_bylevel": 0.305,
+            "learning_rate": 0.01,
+        }
+
         # Define TrainingConfig
         self.training_config = TrainingConfig(
             train_test_split=0.2,
@@ -72,6 +82,7 @@ class TrainModelConfig:
             cv_block_buffer=0.0001,
             search_n_trials=200,
             optimizer="hyperopt",
+            params=params,
             max_iters=1,
             n_jobs=-1,
             results_dir=self.RESULTS_DIR,
