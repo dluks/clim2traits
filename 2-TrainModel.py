@@ -125,6 +125,7 @@ if __name__ == "__main__":
         help="iNaturalist transform to use as response variable",
         choices=["exp_ln", "ln"],
     )
+    parser.add_argument("--tune", action="store_true", help="Tune hyperparameters")
     parser.add_argument(
         "--resume", action="store_true", help="Resume previous training run"
     )
@@ -170,5 +171,8 @@ if __name__ == "__main__":
             print(dataset.collection_name)
 
     XY.train_Y_models(
-        training_config=config.training_config, y_idx=args.y_idx, resume=args.resume
+        training_config=config.training_config,
+        y_idx=args.y_idx,
+        tune_params=args.tune,
+        resume=args.resume,
     )

@@ -575,7 +575,9 @@ class MLCollection:
         self,
         training_config: TrainingConfig,
         y_idx: Optional[list[int]] = None,
+        tune_params: bool = False,
         resume: bool = False,
+        debug: bool = False,
     ) -> None:
         """Train models for all response variables in MLCollection
 
@@ -613,12 +615,17 @@ class MLCollection:
 
             train_run = TrainingRun(self, y_col, training_config, resume=resume)
 
-            print("Tuning hyperparameters...")
-            train_run.tune_params_cv()
-            print("Tuning complete.")
+            if tune_params:
+                print("Tuning hyperparameters...")
+                train_run.tune_params_cv()
+                print("Tuning complete.")
+            else:
+                train_run.train_cv()
+
             print("Training model on all data...")
             train_run.train_model_on_all_data()
             print("Training complete.")
+            
             print("Saving results...")
             train_run.save_results()
             print("Results saved.")
