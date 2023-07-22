@@ -74,8 +74,14 @@ class TrainModelConfig:
             "learning_rate": 0.01,
         }
 
+        # NaN strategy should be one of the following to maintain consistency in the
+        # results table:
+        # ["all", "all-imputed", "any", "threshold-#", "threshold-#-imputed"]
+        nan_strategy = "all"
+
         # Define TrainingConfig
         self.training_config = TrainingConfig(
+            nan_strategy=nan_strategy,
             train_test_split=0.2,
             cv_grid_size=self.AUTOCORRELATION_RANGE,
             cv_n_groups=10,

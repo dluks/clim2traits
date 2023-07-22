@@ -53,6 +53,7 @@ class TrainingResults:
     fold_indices: list = field(default_factory=list)
     random_state: int = 0
     filtered_outliers: Optional[list] = None
+    nan_strategy: str = "all"
 
     def to_df(self) -> pd.DataFrame:
         """Converts the results to a pandas DataFrame."""
@@ -81,6 +82,7 @@ class TrainingResults:
                 "CV fold indices": [self.fold_indices],
                 "Random seed": self.random_state,
                 "Filtered RV outliers": [self.filtered_outliers],
+                "NaN strategy": self.nan_strategy,
             }
         )
         return df
@@ -92,6 +94,7 @@ class TrainingConfig:
     Configuration options for a training run.
 
     Attributes:
+        nan_strategy (str, optional): Strategy for handling NaNs in the data.
         train_test_split (float, optional): Ratio of test set size to the
             whole dataset size. Defaults to 0.2.
         cv_grid_size (Union[int, float], optional): Size of the grid for
@@ -102,6 +105,7 @@ class TrainingConfig:
         search_n_trials (int, optional): Number of hyperparameter search
             trials. Defaults to 100.
         optimizer (str, optional): Hyperparameter optimization algorithm.
+            Defaults to "hyperopt".
         params (dict, optional): Hyperparameter search space. Defaults to {}.
         n_jobs (int, optional): Number of parallel jobs. Defaults to -1.
         results_dir (pathlib.Path, optional): Path to the directory to save
@@ -109,8 +113,11 @@ class TrainingConfig:
         results_csv (pathlib.Path, optional): Path to the CSV file where training
             results are saved. Defaults to results_dir / "training_results.csv".
         random_state (int, optional): Random seed. Defaults to 42.
+        filter_y_outliers (Optional[list], optional): Quantile range with which to
+            filter outliers in the response variable, e.g. [0.5, 0.95] Defaults to None.
     """
 
+    nan_strategy: str = "all"
     train_test_split: float = 0.2
     cv_grid_size: Union[int, float] = 2330633
     cv_n_groups: int = 10
@@ -201,6 +208,7 @@ class TrainingRun:
         self.results.grid_size = self.training_config.cv_grid_size
         self.results.random_state = self.training_config.random_state
         self.results.filtered_outliers = self.training_config.filter_y_outliers
+        self.results.nan_strategy = self.training_config.nan_strategy
 
         # Init a X an y dataframe with geometry, predictors, and target variable,
         # and drop rows and columns that contain only NA values
