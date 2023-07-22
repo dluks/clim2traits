@@ -22,18 +22,34 @@ from utils.training import TrainingConfig, TrainingRun
 class CollectionName(Enum):
     """Name of the dataset collection."""
 
-    def __init__(self, value, short, abbr, parent_dir):
+    def __init__(
+        self,
+        value,
+        short,
+        abbr,
+        parent_dir,
+        feature_key: Optional[Union[str, list[str]]] = None,
+    ):
         self._value_ = value
         self.short = short
         self.abbr = abbr
         self.parent_dir = parent_dir
+        self.feature_key = feature_key
 
-    def __new__(cls, value, short, abbr, parent_dir):
+    def __new__(
+        cls,
+        value,
+        short,
+        abbr,
+        parent_dir,
+        feature_key: Optional[Union[str, list[str]]] = None,
+    ):
         obj = object.__new__(cls)
         obj._value_ = value
         obj.short = short
         obj.abbr = abbr
         obj.parent_dir = parent_dir
+        obj.feature_key = feature_key
         return obj
 
     INAT = (
@@ -83,15 +99,23 @@ class CollectionName(Enum):
         "MOD09GA.061",
         "modis",
         Path("./data/modis"),
+        "sur_refl",
     )
-    SOIL = "ISRIC World Soil Information", "ISRIC_soil", "soil", Path("./data/soil")
+    SOIL = (
+        "ISRIC World Soil Information",
+        "ISRIC_soil",
+        "soil",
+        Path("./data/soil"),
+        ["0-5cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm"],
+    )
     WORLDCLIM = (
         "WorldClim Bioclimatic Variables",
         "WC_BIO",
         "wc",
         Path("./data/worldclim/bio"),
+        "wc2.1",
     )
-    VODCA = "VODCA", "VODCA", "vodca", Path("./data/vodca")
+    VODCA = "VODCA", "VODCA", "vodca", Path("./data/vodca"), "vodca"
     OTHER = "Other", "other", "other", Path("./data/other")
 
     @classmethod
@@ -510,7 +534,7 @@ class DataCollection:
     datasets: list[Dataset]
 
     @cached_property
-    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame, pd.Series]:
+    def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
         df = merge_dfs([dataset.df for dataset in self.datasets])
         return df
@@ -518,6 +542,81 @@ class DataCollection:
     @cached_property
     def cols(self) -> Union[pd.Index, str]:
         return self.df.columns.difference(["geometry"])
+
+    @classmethod
+    def from_ids(cls, ids: list[str], band: Optional[str] = None) -> DataCollection:
+        """Returns a DataCollection object from a list of identifiers.
+
+        Args:
+            ids (list[str]): List of dataset identifiers.
+
+        Returns:
+            DataCollection: DataCollection object.
+        """
+        datasets = [Dataset.from_id(id, band=band) for id in ids]
+        return cls(datasets=datasets)
+
+    @classmethod
+    def from_df(cls, df: Union[pd.DataFrame, gpd.GeoDataFrame]) -> DataCollection:
+        """Returns a DataCollection object from a DataFrame.
+
+        Args:
+            df (Union[pd.DataFrame, gpd.GeoDataFrame]): DataFrame.
+
+        Returns:
+            DataCollection: DataCollection object.
+        """
+        # Determine the datasets by checking to see if CollectionName feature_keys are
+        # present in the DataFrame columns
+        dataset_ids = dataset_ids_from_df(df)
+        if not dataset_ids:
+            raise ValueError("Cannot find any dataset identifiers in the dataframe.")
+
+        res_str = check_for_res_str(df)
+        if not res_str:
+            raise ValueError("Cannot find a valid resolution string in the dataframe.")
+
+        # Update the dataset_ids with the res_str
+        dataset_ids = [f"{id}_{res_str}" for id in dataset_ids]
+
+        # Create the DataCollection
+        data_collection = cls.from_ids(dataset_ids)
+
+        # Overwrite the dataframe with the preexisting one
+        # (TODO: For an imputed DataCollection with non-imputed single datasets, this
+        # means that the DataCollection dataframe may contain different values than are
+        # present in the individual datasets. This is not ideal.)
+        data_collection.df = df
+
+        return data_collection
+
+
+def dataset_ids_from_df(df: Union[pd.DataFrame, gpd.GeoDataFrame]) -> list[str]:
+    # Determine the datasets by checking to see if CollectionName feature_keys are
+    # present in the DataFrame columns
+    dataset_ids = []
+    for collection_name in CollectionName:
+        feature_key = collection_name.feature_key
+        if isinstance(feature_key, str):
+            if any(feature_key in col for col in df.columns):
+                dataset_ids.append(collection_name.short)
+        elif isinstance(feature_key, list):
+            if all(any(key in col for col in df.columns) for key in feature_key):
+                dataset_ids.append(collection_name.short)
+    return dataset_ids
+
+
+def check_for_res_str(df: Union[pd.DataFrame, gpd.GeoDataFrame]) -> Union[str, None]:
+    """Checks a DataFrame for a resolution string.
+    Returns the resolution string if found, otherwise returns None.
+    """
+    # Get a res_str from the DataFrame by checking the column names
+    common_res_strings = ["0.5_deg", "1_deg", "2_deg", "1_km", "1000_m"]
+    for col in df.columns:
+        for res_str in common_res_strings:
+            if res_str in col:
+                return res_str
+    return None
 
 
 class MLCollection:

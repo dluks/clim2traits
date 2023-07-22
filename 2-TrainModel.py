@@ -5,7 +5,11 @@
 # ## Imports and configuration
 
 import argparse
+from pathlib import Path
 from pprint import pprint
+from typing import Optional
+
+import geopandas as gpd
 
 from TrainModelConfig import TrainModelConfig
 from utils.dataset_tools import FileExt, Unit
@@ -27,9 +31,11 @@ def prep_data(
     X_names: list = ["all"],
     Y_names: list = ["inat_gbif"],
     res: float = 0.5,
+    X_collection: Optional[str] = None,
 ) -> MLCollection:
     """Load data and prepare for training"""
 
+    # Prep Y data
     gbif = Dataset(
         res=res,
         unit=Unit.DEGREE,
@@ -46,41 +52,7 @@ def prep_data(
         file_ext=FileExt.GRID,
     )
 
-    wc = Dataset(
-        res=res,
-        unit=Unit.DEGREE,
-        collection_name=config.WC_name,
-    )
-
-    modis = Dataset(
-        res=res,
-        unit=Unit.DEGREE,
-        collection_name=config.MODIS_name,
-    )
-
-    soil = Dataset(
-        res=res,
-        unit=Unit.DEGREE,
-        collection_name=config.soil_name,
-    )
-
-    vodca = Dataset(
-        res=0.5,
-        unit=Unit.DEGREE,
-        collection_name=CollectionName.VODCA,
-        file_ext=FileExt.NETCDF4,
-    )
-
-    all_predictors = [wc, modis, soil, vodca]
     all_rvs = [gbif, splot]
-
-    if X_names == ["all"]:
-        predictors = all_predictors
-    else:
-        predictors: list[Dataset] = []
-        for predictor in all_predictors:
-            if predictor.collection_name.abbr in X_names:
-                predictors.append(predictor)
 
     if Y_names == ["all"]:
         rvs = all_rvs
@@ -90,8 +62,50 @@ def prep_data(
             if rv.collection_name.abbr in Y_names:
                 rvs.append(rv)
 
-    X = DataCollection(predictors)
     Y = DataCollection(rvs)
+
+    # Prep X data
+    if X_collection is not None:
+        print("\nUsing collection: ", Path(X_collection).name)
+        df = gpd.read_feather(X_collection)
+        X = DataCollection.from_df(df)
+    else:
+        wc = Dataset(
+            res=res,
+            unit=Unit.DEGREE,
+            collection_name=config.WC_name,
+        )
+
+        modis = Dataset(
+            res=res,
+            unit=Unit.DEGREE,
+            collection_name=config.MODIS_name,
+        )
+
+        soil = Dataset(
+            res=res,
+            unit=Unit.DEGREE,
+            collection_name=config.soil_name,
+        )
+
+        vodca = Dataset(
+            res=0.5,
+            unit=Unit.DEGREE,
+            collection_name=CollectionName.VODCA,
+            file_ext=FileExt.NETCDF4,
+        )
+
+        all_predictors = [wc, modis, soil, vodca]
+
+        if X_names == ["all"]:
+            predictors = all_predictors
+        else:
+            predictors: list[Dataset] = []
+            for predictor in all_predictors:
+                if predictor.collection_name.abbr in X_names:
+                    predictors.append(predictor)
+
+        X = DataCollection(predictors)
 
     print("\nPreparing data...")
     print("X:")
@@ -124,6 +138,12 @@ if __name__ == "__main__":
         default="exp_ln",
         help="iNaturalist transform to use as response variable",
         choices=["exp_ln", "ln"],
+    )
+    parser.add_argument(
+        "--X-collection",
+        type=str,
+        default=None,
+        help="Path to existing X collection dataframe.",
     )
     parser.add_argument("--tune", action="store_true", help="Tune hyperparameters")
     parser.add_argument(
@@ -159,7 +179,9 @@ if __name__ == "__main__":
         print(f"Config:")
         pprint(config.__dict__)
 
-    XY = prep_data(X_names=args.X, Y_names=args.Y, res=args.res)
+    XY = prep_data(
+        X_names=args.X, Y_names=args.Y, res=args.res, X_collection=args.X_collection
+    )
 
     if args.debug:
         print("X datasets:")
