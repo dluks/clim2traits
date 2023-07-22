@@ -220,6 +220,12 @@ class Dataset:
         ) and not self.transform:
             self.transform = "exp_ln"
 
+    def __str__(self):
+        return self.id
+
+    def __repr__(self):
+        return self.id
+
     @cached_property
     def res_str(self) -> str:
         """Returns the resolution identifier as used in the dataset."""
