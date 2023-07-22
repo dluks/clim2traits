@@ -240,7 +240,7 @@ class TrainingRun:
         """Unique identifier for this training run"""
         if self.resume:
             # get last run ID from results CSV
-            ids = pd.read_csv(self.training_config.results_csv)["Run ID"]
+            ids = pd.read_csv(self.training_config.results_csv)["Run ID"].sort_values()
             id = ids.last_valid_index()  # ignores empty rows/NaNs
             if id is None:
                 warnings.warn("No previous training run found. Starting new run.")
