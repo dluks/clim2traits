@@ -29,7 +29,7 @@ config = TrainModelConfig()
 # %%
 def prep_data(
     X_names: list = ["all"],
-    Y_names: list = ["inat_gbif"],
+    Y_names: list = ["gbif"],
     res: float = 0.5,
     X_collection: Optional[str] = None,
 ) -> MLCollection:

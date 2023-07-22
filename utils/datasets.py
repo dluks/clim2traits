@@ -281,20 +281,24 @@ class Dataset:
                 self.res_str,
                 f"GBIF*.{self.file_ext.value}",
             )
-        elif self.collection_name == CollectionName.SPLOT:
+        elif self.collection_name == CollectionName.INAT_SPLOT_GF:
             search_str = os.path.join(
                 self.parent_dir, self.res_str, f"sPlot*.{self.file_ext.value}"
             )
-        elif self.collection_name == CollectionName.GBIF:
+        elif (
+            self.collection_name == CollectionName.GBIF
+            or self.collection_name == CollectionName.SPLOT
+        ):
+            prefix = "GBIF" if self.collection_name == CollectionName.GBIF else "sPlot"
             if self.file_ext == FileExt.ANY:
-                # Set file extension to .grd for GBIF data
+                # Set file extension to .grd for GBIF and sPlot data
                 # TODO: This is a hacky solution. Should probably rethink file ext
                 # property assignment altogether.
                 self.file_ext = FileExt.GRID
             search_str = os.path.join(
                 self.parent_dir,
                 self.res_str,
-                f"GBIF*.{self.file_ext.value}",
+                f"{prefix}*.{self.file_ext.value}",
             )
         elif self.collection_name == CollectionName.SOIL:
             search_str = os.path.join(
@@ -387,8 +391,11 @@ class Dataset:
         else:
             ds_name = None
 
-        if self.collection_name == CollectionName.GBIF and not self.band:
-            raise ValueError("Band must be specified for GBIF data.")
+        if (
+            self.collection_name == CollectionName.GBIF
+            or self.collection_name == CollectionName.SPLOT
+        ) and not self.band:
+            raise ValueError("Band must be specified for GBIF and sPlot data.")
 
         df = gdf_from_list(
             fns=self.fpaths,
@@ -724,7 +731,7 @@ class MLCollection:
             print("Training model on all data...")
             train_run.train_model_on_all_data()
             print("Training complete.")
-            
+
             print("Saving results...")
             train_run.save_results()
             print("Results saved.")
