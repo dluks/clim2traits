@@ -1,12 +1,19 @@
 import ast
+import os
 from dataclasses import dataclass
+from functools import cached_property
+from pathlib import Path
+from typing import Optional, Sequence, Union
 
+import geopandas as gpd
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import xgboost as xgb
 from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 
+from utils.datasets import DataCollection, GBIFBand, MLCollection
 from utils.spatial_stats import aoa, block_cv_splits
 
 
@@ -17,15 +24,16 @@ class Stats:
     cv_r2: float
     cv_r2_std: float
     test_r2: float
-    predictor_importances: list
+    predictor_importances: np.ndarray
 
 
 @dataclass
-class Model:
+class TrainedSet:
     id: int
     run_id: str
     y_name: str
     Xy: MLCollection
+    Xy_imputed: Optional[MLCollection]
     resolution: float
     params: dict
     n_tuning_iters: int
@@ -44,18 +52,34 @@ class Model:
 
     def __post_init__(self):
         tt_splits = train_test_split(
-            self.Xy.df[self.Xy.X.cols].to_numpy(),
-            self.Xy.df[self.Xy.Y.cols].to_numpy(),
-            self.Xy.coords,
+            self.Xy.df,
             test_size=self.train_test_split,
             random_state=self.random_state,
         )
-        self.X_train = tt_splits[0]
-        self.X_test = tt_splits[1]
-        self.y_train = tt_splits[2]
-        self.y_test = tt_splits[3]
-        self.coords_train = tt_splits[4]
-        self.coords_test = tt_splits[5]
+
+        x_cols = self.Xy.X.cols
+        y_cols = self.Xy.Y.cols
+
+        self.X_train = tt_splits[0][x_cols]
+        self.X_test = tt_splits[1][x_cols]
+        self.y_train = tt_splits[0][y_cols]
+        self.y_test = tt_splits[1][y_cols]
+        self.coords_train = tt_splits[0]["geometry"]
+        self.coords_test = tt_splits[1]["geometry"]
+
+        if self.Xy_imputed is not None:
+            tt_splits = train_test_split(
+                self.Xy_imputed.df,
+                test_size=self.train_test_split,
+                random_state=self.random_state,
+            )
+
+            self.X_train_imputed = tt_splits[0][x_cols]
+            self.X_test_imputed = tt_splits[1][x_cols]
+            self.y_train_imputed = tt_splits[0][y_cols]
+            self.y_test_imputed = tt_splits[1][y_cols]
+            self.coords_train_imputed = tt_splits[0]["geometry"]
+            self.coords_test_imputed = tt_splits[1]["geometry"]
 
     @property
     def model(self):
@@ -104,11 +128,34 @@ class Model:
         y_name = row["Response variable"]
         y_band = [b for b in gbif_bands if b in y_name][0]
 
-        X = DataCollection([Dataset.from_id(id) for id in predictor_ids])
-        Y = DataCollection([Dataset.from_id(id, y_band) for id in rv_ids])
+        imputed = True if "imputed" in row["NaN strategy"] else False
+
+        if row["collection"] is not None:
+            fn = os.path.join("data/collections", row["collection"])
+            X_df = gpd.read_feather(fn)
+            X = DataCollection.from_df(X_df)
+
+            if not imputed:
+                fn_ext = Path(fn).suffix
+                imp_stem = Path(fn).stem + "_imputed"
+                imp_fn = os.path.join("data/collections", imp_stem + fn_ext)
+                X_imp_df = gpd.read_feather(imp_fn)
+                X_imp = DataCollection.from_df(X_imp_df)
+
+        else:
+            X = DataCollection.from_ids([id for id in predictor_ids])
+
+        Y = DataCollection.from_ids([id for id in rv_ids], y_band)
         Y.df = Y.df[["geometry", y_name]]
+
         Xy = MLCollection(X, Y)
         Xy.drop_NAs(verbose=1)
+
+        if not imputed:
+            Xy_imputed = MLCollection(X_imp, Y)
+            Xy_imputed.drop_NAs(verbose=1)
+        else:
+            Xy_imputed = None
 
         stats = Stats(
             cv_nrmse=row["CV nRMSE"],
@@ -116,7 +163,9 @@ class Model:
             cv_r2=row["CV r-squared"],
             cv_r2_std=row["CV r-squared STD"],
             test_r2=row["Test r-squared"],
-            predictor_importances=ast.literal_eval(row["Predictor importance"]),
+            predictor_importances=np.array(
+                ast.literal_eval(row["Predictor importance"])
+            ),
         )
 
         if isinstance(row["Filtered RV outliers"], str):
@@ -125,10 +174,11 @@ class Model:
             filtered_y_outliers = []
 
         return cls(
-            id=int(row.name.__str__()),
+            id=int(row.name.__str__()),  # type: ignore (pandas bug)
             run_id=row["Run ID"],
             y_name=y_name,
             Xy=Xy,
+            Xy_imputed=Xy_imputed,
             resolution=row["Resolution"],
             params=ast.literal_eval(row["Best parameters"]),
             n_tuning_iters=int(row["N tuning iters"]),
@@ -150,4 +200,68 @@ class Model:
 @dataclass
 class Trait:
     name: str
-    models: list[Model]
+    models: list[TrainedSet]
+
+
+class Prediction:
+    def __init__(
+        self,
+        trained_set: TrainedSet,
+        new_data: Union[gpd.GeoDataFrame, pd.DataFrame],
+        new_data_imputed: Optional[gpd.GeoDataFrame] = None,
+    ):
+        self.trained_set = trained_set
+        self.new_data = new_data
+        self.new_data_imputed = new_data_imputed
+
+    @cached_property
+    def predictions(self):
+        return self.trained_set.model.predict(
+            self.new_data[self.trained_set.Xy.X.cols].to_numpy()
+        )
+
+    @cached_property
+    def aoa(self):
+        folds = [fold[1] for fold in list(self.trained_set.cv)]
+
+        if self.trained_set.Xy_imputed is not None:
+            X_train = self.trained_set.X_train_imputed
+        else:
+            X_train = self.trained_set.X_train
+
+        if self.new_data_imputed is not None:
+            new_data = self.new_data_imputed
+        else:
+            new_data = self.new_data
+
+        return AoA(
+            train=X_train,
+            new=new_data,
+            weights=self.trained_set.stats.predictor_importances,
+            cv=folds,
+        )
+
+
+class AoA:
+    """Area of Applicability (AOA) measure for spatial prediction models from Meyer and Pebesma (2020).
+    The AOA defines the area for which, on average, the cross-validation error of the
+    model applies, which is crucial for assessing the reliability of the model."""
+
+    def __init__(
+        self,
+        train: Union[gpd.GeoDataFrame, pd.DataFrame],
+        new: Union[gpd.GeoDataFrame, pd.DataFrame],
+        weights: np.ndarray,
+        thres: float = 0.95,
+        cv: Optional[Sequence] = None,
+    ):
+        self.df = aoa(
+            new_df=new,
+            training_df=train,
+            weights=weights,
+            thres=thres,
+            fold_indices=cv,
+        )
+
+    def plot(self):
+        pass
