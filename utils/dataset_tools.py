@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from enum import Enum
 
 
@@ -36,3 +37,16 @@ class FileExt(Enum):
     NETCDF4 = "nc"
     GRID = "grd"
     ANY = "*"
+
+
+def timer(func):
+    """Decorator to time a function."""
+
+    def inner(*args, **kwargs):
+        t1 = time.time()
+        f = func(*args, **kwargs)
+        t2 = time.time()
+        print(f"Runtime took {t2-t1:.2f} seconds")
+        return f
+
+    return inner

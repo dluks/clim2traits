@@ -1,5 +1,3 @@
-import time
-import types
 from typing import Optional, Sequence, Union
 
 import geopandas as gpd
@@ -8,9 +6,9 @@ import numpy.typing as npt
 import pandas as pd
 import spacv
 from scipy.spatial.distance import pdist, squareform
-from sklearn.experimental import enable_iterative_imputer  # type: ignore
-from sklearn.impute import IterativeImputer
 from sklearn.neighbors import BallTree
+
+from utils.dataset_tools import timer
 
 
 def block_cv_splits(
@@ -60,8 +58,8 @@ def block_cv_splits(
 
 
 def aoa(
-    new_data: Union[gpd.GeoDataFrame, pd.DataFrame],
-    training_data: Union[gpd.GeoDataFrame, pd.DataFrame],
+    new_df: Union[gpd.GeoDataFrame, pd.DataFrame],
+    training_df: Union[gpd.GeoDataFrame, pd.DataFrame],
     weights: Optional[np.ndarray] = None,
     thres: float = 0.95,
     fold_indices: Optional[Sequence] = None,
@@ -95,122 +93,143 @@ def aoa(
     masked_result : array
         Binary mask that occludes points outside predictive area of applicability.
     """
-    # new_data_geometry = new_data["geometry"].copy()
-    training_data = training_data[training_data.columns.difference(["geometry"])].copy()
-    new_data = new_data[new_data.columns.difference(["geometry"])].copy()
+    # geometry = new_df.pop("geometry")
+    data_cols = training_df.columns
+    training_data = training_df[data_cols].to_numpy()
+    new_data = new_df[data_cols].to_numpy()
 
     if len(training_data) <= 1:
         raise ValueError("Training data must contain more than one instance.")
 
-    if len(training_data.columns) != len(new_data.columns):
+    if len(training_df.columns.difference(["geometry"])) != len(
+        new_df.columns.difference(["geometry"])
+    ):
         raise ValueError(
-            "Number of columns in training data and new data must be the same."
+            f"Number of columns in training dataframe ({len(training_df.columns)}) \
+and new dataframe ({len(new_df.columns)}) must be the same."
         )
 
-    if weights is not None and (len(training_data.columns) != len(weights)):
+    if weights is not None and (len(data_cols) != len(weights)):
         raise ValueError(
             "Number of columns in training data and weights must be the same."
         )
 
-    print("Scaling data...")
-    start = time.time()
     # Scale data
-    training_data = (training_data - np.mean(training_data)) / np.std(training_data)
-    new_data = (new_data - np.mean(new_data)) / np.std(new_data)
-    end = time.time()
-    print(f"Scaling took {end - start} seconds")
+    print("Scaling data...")
+    training_data = normalize(training_data)
+    new_data = normalize(new_data)
 
-    print("Imputing missing values...")
-    start = time.time()
-    # Impute the mising values
-    imp = IterativeImputer(max_iter=10, random_state=42)
-    end = time.time()
-    print(f"Imputing took {end - start} seconds")
-
-    print("Fitting imputer...")
-    start = time.time()
-    # Fit imputer on the larger dataset
-    if len(training_data) > len(new_data):
-        imp.fit(training_data)
-    else:
-        imp.fit(new_data)
-    end = time.time()
-    print(f"Fitting took {end - start} seconds")
-
-    print("Transforming data...")
-    start = time.time()
-    # Transform both datasets
-    training_data_imp = imp.transform(training_data)
-    new_data_imp = imp.transform(new_data)
-    end = time.time()
-    print(f"Transforming took {end - start} seconds")
-
-    # Convert back to dataframes
-    training_data = pd.DataFrame(training_data_imp, columns=training_data.columns)
-    new_data = pd.DataFrame(new_data_imp, columns=new_data.columns)
+    # Convert back to dataframes to apply feature weights by column
+    training_data = pd.DataFrame(training_data, columns=data_cols)
+    new_data = pd.DataFrame(new_data, columns=data_cols)
 
     # Apply feature weights
     if weights is not None:
         print("Applying feature weights...")
-        start = time.time()
-        for col, weight in weights:
-            weight = float(weight)
-            training_data[col] = training_data[col] * weight
-            new_data[col] = new_data[col] * weight
-        end = time.time()
-        print(f"Applying weights took {end - start} seconds")
-
-    print("Dropping nans...")
-    start = time.time()
-    # Remove rows with nans for BallTree
-    training_data = training_data.dropna()
-    new_data = new_data.dropna()
-    end = time.time()
-    print(f"Dropping nans took {end - start} seconds")
+        training_data, new_data = map(
+            lambda x: apply_weights(x, weights), [training_data, new_data]
+        )
 
     print("Calculating nearest training instance...")
-    start = time.time()
+    mindist = nearest_dist(training_data, new_data)
+
+    print("Calculating pairwise distances...")
+    train_dist = train_dists(training_data)
+
+    # Remove data points that are within the same fold
+    print("Masking training points in same fold...")
+    if fold_indices:
+        folds = map_folds(fold_indices)
+        train_dist = mask_folds(train_dist, folds)
+
+    print("Calculating AOA...")
+    DIs, masked_result = calc_aoa(mindist, train_dist, thres)
+
+    new_df["DI"] = DIs
+    new_df["AOA"] = masked_result
+
+    return new_df
+
+
+def normalize(data: npt.NDArray) -> npt.NDArray:
+    """Normalize data to mean 0 and standard deviation 1."""
+    return (data - np.mean(data)) / np.std(data)
+
+
+def apply_weights(data: pd.DataFrame, weights: np.ndarray) -> npt.NDArray:
+    """Apply feature weights to data."""
+    for col, weight in weights:
+        weight = float(weight)
+        data[col] = data[col] * weight
+    return data.to_numpy()
+
+
+@timer
+def nearest_dist(training_data, new_data):
     # Calculate nearest training instance to test data, return Euclidean distances
     tree = BallTree(training_data)
     mindist, _ = tree.query(new_data, k=1, return_distance=True)
-    end = time.time()
-    print(f"Calculating nearest took {end - start} seconds")
+    return mindist
 
-    print("Calculating pairwise distances...")
-    start = time.time()
+
+@timer
+def train_dists(training_data):
     # Build matrix of pairwise distances
     paired_distances = pdist(training_data)
     train_dist = squareform(paired_distances)
     np.fill_diagonal(train_dist, np.nan)
-    end = time.time()
-    print(f"Calculating pairwise took {end - start} seconds")
+    return train_dist
 
-    # Remove data points that are within the same fold
-    if fold_indices:
-        if isinstance(fold_indices, types.GeneratorType):
-            fold_indices = list(fold_indices)
 
-        print("Masking training points in same fold...")
-        start = time.time()
-        # Get number of training instances in each fold
-        instances_in_folds = [len(fold) for fold in fold_indices]
-        instance_fold_id = np.repeat(
-            np.arange(0, len(fold_indices)), instances_in_folds
-        )
+def map_folds(fold_indices):
+    # First remove any within-fold duplicates
+    fold_indices = [np.unique(fold) for fold in fold_indices]
 
-        # Create mapping between training instance and fold ID
-        fold_indices = np.concatenate(fold_indices)
-        folds = np.vstack((fold_indices, instance_fold_id)).T
+    # Check for duplicate ids across folds
+    unique, counts = np.unique(np.concatenate(fold_indices), return_counts=True)
+    duplicates = unique[counts > 1]
 
-        # Mask training points in same fold for DI measure calculation
-        for i, _ in enumerate(train_dist):
-            mask = folds[:, 0] == folds[:, 0][i]
-            train_dist[i, mask] = np.nan
-        end = time.time()
-        print(f"Masking took {end - start} seconds")
+    # If duplicates exist, remove all but the first instance of each duplicate
+    if len(duplicates) > 0:
+        for duplicate in duplicates:
+            count = 0
+            for i, fold in enumerate(fold_indices):
+                if duplicate in fold:
+                    count += 1
+                    if count >= 2:
+                        print(f"Removing duplicate {duplicate} from fold {i}...")
+                        fold = np.delete(fold, np.where(fold == duplicate), axis=0)
+                        fold_indices[i] = fold
+                        # mask = np.ones(len(fold), dtype=bool)
+                        # mask[np.where(fold == duplicate)] = False
+                        # fold_indices[i] = fold[mask]
 
-    print("Calculating AOA...")
-    start = time.time()
+    # Get number of training instances in each fold
+    instances_in_folds = [len(fold) for fold in fold_indices]
+    instance_fold_id = np.repeat(np.arange(0, len(fold_indices)), instances_in_folds)
+
+    # Create mapping between training instance and fold ID
+    fold_indices = np.concatenate(fold_indices)
+
+    folds = np.vstack((fold_indices, instance_fold_id)).T
+
+    return folds
+
+
+def mask_folds(train_dist, folds):
+    # sort folds by point id for easier masking
+    folds = folds[np.argsort(folds[:, 0])]
+
+    # Mask training points in same fold for DI measure calculation
+    for i, _ in enumerate(train_dist):
+        point_fold = folds[i, 1]
+        mask = folds[:, 1] == point_fold
+        train_dist[i, mask] = np.nan
+    return train_dist
+
+
+@timer
+def calc_aoa(mindist, train_dist, thres):
     # Scale distance to nearest training point by average distance across training data
     train_dist_mean = np.nanmean(train_dist, axis=1)
     train_dist_avgmean = np.mean(train_dist_mean)
@@ -218,17 +237,11 @@ def aoa(
 
     # Define threshold for AOA
     train_dist_min = np.nanmin(train_dist, axis=1)
-    # aoa_train_stats = np.quantile(
-    #     train_dist_min / train_dist_avgmean,
-    #     q=np.array([0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1]),
-    # )
     thres = np.quantile(train_dist_min / train_dist_avgmean, q=thres)
 
     # We choose the AOA as the area where the DI does not exceed the threshold
     DIs = mindist.reshape(-1)
     masked_result = np.repeat(1, len(mindist))
     masked_result[DIs > thres] = 0
-    end = time.time()
-    print(f"Calculating AOA took {end - start} seconds")
 
     return DIs, masked_result
