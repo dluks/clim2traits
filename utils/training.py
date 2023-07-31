@@ -81,7 +81,7 @@ class TrainingResults:
                 "N CV groups": self.cv_n_groups,
                 "CV grid size [m]": self.grid_size,
                 "CV block buffer": self.cv_block_buffer,
-                "CV fold indices": [*self.fold_indices],
+                "CV fold indices": [[*self.fold_indices]],
                 "Random seed": self.random_state,
                 "Filtered RV outliers": [self.filtered_outliers],
                 "NaN strategy": self.nan_strategy,
@@ -287,11 +287,12 @@ class TrainingRun:
             n_groups=self.training_config.cv_n_groups,
             random_state=self.training_config.random_state,
         )
-        fold_indices = list(cv)
+        cv = list(cv)
+        folds = [fold[1] for fold in cv]
         # Save fold indices to results object (need to convert nested numpy arrays to
         # lists so that they can be evaluated with ast later)
-        self.results.fold_indices = [fold.tolist() for fold in fold_indices]
-        return fold_indices
+        self.results.fold_indices = [fold.tolist() for fold in folds]
+        return cv
 
     def tune_params_cv(self):
         """Tune model hyperparameters with spatial CV and save results"""
