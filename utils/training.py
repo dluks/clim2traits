@@ -268,7 +268,7 @@ class TrainingRun:
     @property
     def results_dir(self) -> pathlib.Path:
         """Directory to save training results"""
-        d = self.training_config.results_dir / "training" / self.id
+        d = self.training_config.results_dir / "training" / self.id / self.y_col
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -324,6 +324,15 @@ class TrainingRun:
             n_jobs=self.training_config.n_jobs,
             verbose=1,
         )
+
+        # Save each CV estimator to disk
+        estimators = cv_results["estimator"]
+        cv_est_out_dir = self.results_dir / "cv-estimators"
+        cv_est_out_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, est in enumerate(estimators):
+            est_fn = cv_est_out_dir / f"{self.y_col}_{self.id}_fold-{i}"
+            est.save_model(est_fn)
 
         rmses, r2s = cv_results["test_rmse"], cv_results["test_r2"]
         cv_nrmse, cv_nrmse_std = normalize_to_range(-rmses, self.y_range)
@@ -499,6 +508,7 @@ def train_model_cv(
         y=y,
         scoring={"rmse": "neg_root_mean_squared_error", "r2": "r2"},
         cv=cv,
+        return_estimator=True,
         n_jobs=n_jobs,
         verbose=verbose,
     )
