@@ -540,7 +540,7 @@ def train_model_full(
         **model_params,
         booster="gbtree",
         importance_type="gain",
-        early_stopping_rounds=100,
+        early_stopping_rounds=2000,
         eval_metric=mean_squared_error,
         n_jobs=n_jobs,
         random_state=random_state,
