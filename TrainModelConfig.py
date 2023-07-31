@@ -85,7 +85,7 @@ class TrainModelConfig:
             train_test_split=0.2,
             cv_grid_size=self.AUTOCORRELATION_RANGE,
             cv_n_groups=10,
-            cv_block_buffer=0.0001,
+            cv_block_buffer=0.0,
             search_n_trials=200,
             optimizer="hyperopt",
             params=params,

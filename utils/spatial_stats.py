@@ -15,7 +15,7 @@ def block_cv_splits(
     X: npt.NDArray,
     coords: pd.Series,
     grid_size: float,
-    buffer_radius=0,
+    buffer_radius: Union[float, int] = 0,
     n_groups: int = 10,
     random_state: int = 42,
     verbose: int = 0,
