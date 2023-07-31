@@ -7,7 +7,7 @@ import xgboost as xgb
 from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 
-from utils.datasets import DataCollection, Dataset, GBIFBand, MLCollection
+from utils.spatial_stats import aoa, block_cv_splits
 
 
 @dataclass
@@ -36,6 +36,7 @@ class Model:
     n_cv_groups: int
     cv_grid_size: float
     cv_block_buffer: float
+    # fold_indices: list
     n_observations: int
     optimizer: str
     max_iter: int
@@ -61,6 +62,17 @@ class Model:
         model = xgb.XGBRegressor(**self.params)
         model.load_model(self.model_fpath)
         return model
+
+    @property
+    def cv(self):
+        return block_cv_splits(
+            X=self.X_train.to_numpy(),
+            coords=self.coords_train,
+            grid_size=self.cv_grid_size,
+            buffer_radius=0,
+            n_groups=self.n_cv_groups,
+            random_state=self.random_state,
+        )
 
     def plot_observed_vs_predicted(self):
         """Plot observed vs. predicted values."""
@@ -127,6 +139,7 @@ class Model:
             n_cv_groups=int(row["N CV groups"]),
             cv_grid_size=row["CV grid size [m]"],
             cv_block_buffer=row["CV block buffer"],
+            # fold_indices=ast.literal_eval(row["CV fold indices"]),
             n_observations=int(row["N observations"]),
             optimizer=row["Optimizer"],
             max_iter=int(row["max_iter"]),
