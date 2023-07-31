@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -63,7 +63,7 @@ def aoa(
     weights: Optional[np.ndarray] = None,
     thres: float = 0.95,
     fold_indices: Optional[Sequence] = None,
-):
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Area of Applicability (AOA) measure for spatial prediction models from
     Meyer and Pebesma (2020). The AOA defines the area for which, on average,
@@ -145,10 +145,7 @@ and new dataframe ({len(new_df.columns)}) must be the same."
     print("Calculating AOA...")
     DIs, masked_result = calc_aoa(mindist, train_dist, thres)
 
-    new_df["DI"] = DIs
-    new_df["AOA"] = masked_result
-
-    return new_df
+    return DIs, masked_result
 
 
 def normalize(data: npt.NDArray) -> npt.NDArray:
@@ -197,12 +194,8 @@ def map_folds(fold_indices):
                 if duplicate in fold:
                     count += 1
                     if count >= 2:
-                        print(f"Removing duplicate {duplicate} from fold {i}...")
                         fold = np.delete(fold, np.where(fold == duplicate), axis=0)
                         fold_indices[i] = fold
-                        # mask = np.ones(len(fold), dtype=bool)
-                        # mask[np.where(fold == duplicate)] = False
-                        # fold_indices[i] = fold[mask]
 
     # Get number of training instances in each fold
     instances_in_folds = [len(fold) for fold in fold_indices]
