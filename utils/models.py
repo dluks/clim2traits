@@ -128,19 +128,20 @@ class TrainedSet:
         y_name = row["Response variable"]
         y_band = [b for b in gbif_bands if b in y_name][0]
 
-        imputed = True if "imputed" in row["NaN strategy"] else False
+        if "imputed" in row["NaN strategy"] or "imputed" in row["collection"]:
+            imputed = True
+        else:
+            imputed = False
 
         if row["collection"] is not None:
-            fn = os.path.join("data/collections", row["collection"])
-            X_df = gpd.read_feather(fn)
-            X = DataCollection.from_df(X_df)
+            fpath = Path(row["collection"])
+            X = DataCollection.from_collection(fpath)
 
             if not imputed:
-                fn_ext = Path(fn).suffix
-                imp_stem = Path(fn).stem + "_imputed"
-                imp_fn = os.path.join("data/collections", imp_stem + fn_ext)
-                X_imp_df = gpd.read_feather(imp_fn)
-                X_imp = DataCollection.from_df(X_imp_df)
+                fn_ext = fpath.suffix
+                imp_stem = fpath.stem + "_imputed"
+                imp_fn = Path(fpath.parent, imp_stem + fn_ext)
+                X_imp = DataCollection.from_collection(imp_fn)
 
         else:
             X = DataCollection.from_ids([id for id in predictor_ids])

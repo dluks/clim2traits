@@ -35,6 +35,7 @@ class TrainingResults:
     run_id: str = ""
     rv_ds: list = field(default_factory=list)
     pred_ds: list = field(default_factory=list)
+    collection_fn: Optional[str] = None
     res: str = "0.5_deg"
     params: dict = field(default_factory=dict)
     cv_nrmse: Numeric = 0.0
@@ -64,6 +65,7 @@ class TrainingResults:
                 "N observations": self.n_obs,
                 "RV datasets": [self.rv_ds],
                 "Predictor datasets": [self.pred_ds],
+                "collection": self.collection_fn,
                 "Resolution": self.res,
                 "Best parameters": [self.params],
                 "Optimizer": self.optimizer,
@@ -196,6 +198,8 @@ class TrainingRun:
         # Store the IDs of the datasets used as predictors
         self.results.rv_ds = [dataset.id for dataset in XY.Y.datasets]
         self.results.pred_ds = [dataset.id for dataset in XY.X.datasets]
+        if XY.X.collection_file is not None:
+            self.results.collection_fn = str(XY.X.collection_file)
         self.results.rv = self.y_col
         self.results.run_id = self.id
         self.results.res = self.XY.X.datasets[0].res_str

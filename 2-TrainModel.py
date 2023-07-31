@@ -9,8 +9,6 @@ from pathlib import Path
 from pprint import pprint
 from typing import Optional
 
-import geopandas as gpd
-
 from TrainModelConfig import TrainModelConfig
 from utils.dataset_tools import FileExt, Unit
 from utils.datasets import (
@@ -67,8 +65,7 @@ def prep_data(
     # Prep X data
     if X_collection is not None:
         print("\nUsing collection: ", Path(X_collection).name)
-        df = gpd.read_feather(X_collection)
-        X = DataCollection.from_df(df)
+        X = DataCollection.from_collection(X_collection)
     else:
         wc = Dataset(
             res=res,

@@ -534,6 +534,7 @@ class DataCollection:
 
     Attributes:
         datasets (list[Dataset]): List of Dataset objects in the collection.
+        collection_file (Optional[Union[str, os.PathLike]]): Path to a collection file.
 
     Methods:
         df() -> gpd.GeoDataFrame:
@@ -543,6 +544,7 @@ class DataCollection:
     """
 
     datasets: list[Dataset]
+    collection_file: Optional[Union[str, os.PathLike]] = None
 
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
@@ -599,6 +601,13 @@ class DataCollection:
         # present in the individual datasets. This is not ideal.)
         data_collection.df = df
 
+        return data_collection
+
+    @classmethod
+    def from_collection(cls, collection: Union[str, os.PathLike]) -> DataCollection:
+        df = gpd.read_feather(collection)
+        data_collection = cls.from_df(df)
+        data_collection.collection_file = str(collection)
         return data_collection
 
 
