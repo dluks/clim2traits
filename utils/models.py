@@ -1,9 +1,8 @@
 import ast
-import os
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Optional, Sequence, Union
+from typing import Optional, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -88,6 +87,16 @@ class TrainedSet:
         return model
 
     @property
+    def cv_models(self):
+        main_model_fpath = Path(self.model_fpath)
+        model_fpaths = list(Path(main_model_fpath.parent, "cv-estimators").glob("*"))
+
+        for fpath in model_fpaths:
+            model = xgb.XGBRegressor(**self.params)
+            model.load_model(str(fpath))
+            yield model
+
+    @property
     def cv(self):
         return block_cv_splits(
             X=self.X_train.to_numpy(),
@@ -98,10 +107,10 @@ class TrainedSet:
             random_state=self.random_state,
         )
 
-    def plot_observed_vs_predicted(self):
+    def plot_observed_vs_predicted(self, log: bool = False):
         """Plot observed vs. predicted values."""
         pred = self.model.predict(self.X_test)
-        obs = self.y_test
+        obs = np.squeeze(self.y_test.to_numpy())
 
         # plot the observed vs. predicted values using seaborn
         sns.set_theme()
@@ -111,8 +120,28 @@ class TrainedSet:
         _, ax = plt.subplots()
         p1 = min(min(pred), min(obs))
         p2 = max(max(pred), max(obs))
-        ax.plot([p1, p2], [p1, p2], color="black", lw=0.5)
-        ax.scatter(pred, obs)
+        if log:
+            ax.loglog([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
+        else:
+            ax.plot([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
+        ax.scatter(pred, obs, alpha=0.3)
+
+        # Fit a regression line for observed vs. predicted values, plot the regression
+        # line so that it spans the entire plot, and print the correlation coefficient
+        m, b = np.polyfit(pred, obs, 1)
+        reg_line = [m * p1 + b, m * p2 + b]
+        if log:
+            ax.loglog([p1, p2], reg_line, color="red", lw=0.5)
+        else:
+            ax.plot([p1, p2], reg_line, color="red", lw=0.5)
+        ax.text(
+            0.05,
+            0.95,
+            f"r = {np.corrcoef(pred, obs)[0, 1]:.3f}",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+        )
 
         # set informative axes and title
         ax.set_xlabel("Predicted Values")
@@ -198,12 +227,6 @@ class TrainedSet:
         )
 
 
-@dataclass
-class Trait:
-    name: str
-    models: list[TrainedSet]
-
-
 class Prediction:
     def __init__(
         self,
@@ -216,13 +239,27 @@ class Prediction:
         self.new_data_imputed = new_data_imputed
 
     @cached_property
-    def predictions(self):
-        return self.trained_set.model.predict(
+    def df(self) -> gpd.GeoDataFrame:
+        prediction = self.trained_set.model.predict(
             self.new_data[self.trained_set.Xy.X.cols].to_numpy()
         )
+        d = {self.trained_set.y_name: prediction}
+        df = gpd.GeoDataFrame(
+            d,
+            geometry=self.new_data.geometry,
+            crs=self.new_data.crs,
+            index=self.new_data.index,
+        )
+        print("Calculating Area of Applicability...")
+        df["DI"], df["AOA"] = self.aoa(threshold=0.95)
+        df[f"{self.trained_set.y_name}_masked_aoa"] = df[self.trained_set.y_name].where(
+            df["AOA"] == 1
+        )
+        df["CoV"] = self.cov()
+        return df
 
-    @cached_property
-    def aoa(self):
+    def aoa(self, threshold: float = 0.95) -> Tuple[np.ndarray, np.ndarray]:
+        """Area of Applicability"""
         folds = [fold[1] for fold in list(self.trained_set.cv)]
 
         if self.trained_set.Xy_imputed is not None:
@@ -235,34 +272,29 @@ class Prediction:
         else:
             new_data = self.new_data
 
-        return AoA(
-            train=X_train,
-            new=new_data,
+        DIs, AoA = aoa(
+            new_df=new_data.copy(),
+            training_df=X_train.copy(),
             weights=self.trained_set.stats.predictor_importances,
-            cv=folds,
+            thres=threshold,
+            fold_indices=folds,
         )
 
+        return DIs, AoA
 
-class AoA:
-    """Area of Applicability (AOA) measure for spatial prediction models from Meyer and Pebesma (2020).
-    The AOA defines the area for which, on average, the cross-validation error of the
-    model applies, which is crucial for assessing the reliability of the model."""
+    def cov(self) -> np.ndarray:
+        """Coefficient of Variation"""
+        preds = []
+        for model in self.trained_set.cv_models:
+            preds.append(
+                model.predict(self.new_data[self.trained_set.Xy.X.cols].to_numpy())
+            )
 
-    def __init__(
-        self,
-        train: Union[gpd.GeoDataFrame, pd.DataFrame],
-        new: Union[gpd.GeoDataFrame, pd.DataFrame],
-        weights: np.ndarray,
-        thres: float = 0.95,
-        cv: Optional[Sequence] = None,
-    ):
-        self.df = aoa(
-            new_df=new,
-            training_df=train,
-            weights=weights,
-            thres=thres,
-            fold_indices=cv,
-        )
+        all_preds = np.vstack(preds)
+        cov = coefficient_of_variation(all_preds)
+        return cov
 
-    def plot(self):
-        pass
+
+def coefficient_of_variation(data):
+    """Calculate coefficient of variation."""
+    return np.std(data, axis=0) / np.mean(data, axis=0)
