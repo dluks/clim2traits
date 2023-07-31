@@ -280,3 +280,18 @@ def ts_netcdf2gdfs(
         gdf = gdfs[0]
 
     return gdf
+
+
+def mask_oceans(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Masks oceans from a GeoDataFrame.
+
+    Args:
+        gdf (gpd.GeoDataFrame): GeoDataFrame.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame with oceans masked.
+    """
+    land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
+    land_mask.to_crs(gdf.crs, inplace=True)
+
+    return gpd.clip(gdf, land_mask)

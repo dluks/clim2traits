@@ -15,7 +15,7 @@ import pandas as pd
 from utils.data_retrieval import gdf_from_list
 from utils.dataset_tools import FileExt, Unit
 from utils.gdal import resample_gdal
-from utils.geodata import drop_XY_NAs, get_epsg, merge_dfs
+from utils.geodata import drop_XY_NAs, get_epsg, mask_oceans, merge_dfs
 from utils.training import TrainingConfig, TrainingRun
 
 
@@ -405,6 +405,8 @@ class Dataset:
 
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
 
+        df = mask_oceans(df)  # Mask non-land points
+
         if self.filter_outliers:
             df = self._filter_outliers(df, self.filter_outliers)
         return df
@@ -450,6 +452,8 @@ class Dataset:
         """
         res_str = "_".join(id.split("_")[-2:])
         short = id.split(f"_{res_str}")[0]
+        if band:
+            short = short.replace(f"_{band}", "")
         collection_name = CollectionName.from_short(short)
         res = float(res_str.split("_")[0])
         unit = Unit.from_abbr(res_str.split("_")[1])
