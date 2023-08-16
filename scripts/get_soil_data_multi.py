@@ -64,7 +64,7 @@ kwargs = {
     ],
 }
 
-out_base_dir = "./data/soil"
+out_base_dir = "./data/soil/1_km"
 curl_url = "/vsicurl?max_retry=10&retry_delay=10&list_dir=no&url="
 base_url = "https://files.isric.org/soilgrids/latest/data/"
 
@@ -94,23 +94,14 @@ if not RETRY_FAILED:
             if not os.path.exists(out_dir):
                 os.makedirs(out_dir)
 
-            out_fn = os.path.join(out_dir, f"{ds_full_label}_1000m.tif")
+            out_fn = os.path.join(out_dir, f"{ds_full_label}_1_km.tif")
 
             ds_url = f"{ds_name}/{ds_full_label}.vrt"
             url = curl_url + base_url + ds_url
             args.append((url, out_fn))
 else:
     failed = [
-        "ocs_0-30cm_mean",
-        "cec_5-15cm_mean",
-        "cfvo_100-200cm_mean",
-        "sand_5-15cm_mean",
-        "sand_30-60cm_mean",
-        "sand_100-200cm_mean",
-        "soc_0-5cm_mean",
-        "soc_15-30cm_mean",
-        "ocd_100-200cm_mean",
-        "silt_0-5cm_mean",
+        "soc_60-100cm_mean",
     ]
 
     args = []
@@ -121,7 +112,7 @@ else:
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
 
-        out_fn = os.path.join(out_dir, f"{ds_full_label}_1000m.tif")
+        out_fn = os.path.join(out_dir, f"{ds_full_label}_1_km.tif")
 
         ds_url = f"{ds_name}/{ds_full_label}.vrt"
         url = curl_url + base_url + ds_url

@@ -18,6 +18,7 @@ class Unit(Enum):
         return obj
 
     DEGREE = "degree", "deg"
+    SECOND = "second", "s"
     METER = "meter", "m"
     KILOMETER = "kilometer", "km"
     MINUTE = "minute", "min"

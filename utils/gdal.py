@@ -56,6 +56,8 @@ def resample_gdal(
     res: float = 0.5,
     epsg: str = "EPSG:4326",
     globe: bool = False,
+    format: str = "GTiff",
+    resample_alg: str = "cubic",
 ) -> gdal.Dataset:
     """Resamples a dataset to the desired resolution
 
@@ -66,23 +68,33 @@ def resample_gdal(
         dataset's CRS. Defaults to 0.5.
         epsg (str, optional): EPSG code of the desired output CRS
         globe (bool, optional): Update extent to full globe (only works if epsg = 4326)
+        format (str, optional): Output format. Defaults to "GTiff".
 
     Returns:
         gdal.Dataset: Resampled dataset
     """
+    creationOptions = []
 
-    kwargs = {
-        "format": "GTiff",
-        "xRes": res,
-        "yRes": res,
-        "dstSRS": epsg,
-        "resampleAlg": "cubic",
-        "multithread": True,
-        "creationOptions": [
+    if format == "GTiff":
+        creationOptions = [
             "TILED=YES",
             "COMPRESS=DEFLATE",
             "PREDICTOR=2",
-        ],
+        ]
+    elif format == "netCDF":
+        creationOptions = [
+            "FORMAT=NC4",
+            "COMPRESS=DEFLATE",
+        ]
+
+    kwargs = {
+        "format": format,
+        "xRes": res,
+        "yRes": res,
+        "dstSRS": epsg,
+        "resampleAlg": resample_alg,
+        "multithread": True,
+        "creationOptions": creationOptions,
     }
 
     if globe and epsg == "EPSG:4326":

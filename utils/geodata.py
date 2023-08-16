@@ -5,11 +5,14 @@ import os
 from functools import reduce
 from typing import Optional, Tuple, Union
 
+import dask_geopandas as dgpd
 import geopandas as gpd
 import pandas as pd
 import rioxarray as riox
 import xarray as xr
 from rasterio.enums import Resampling
+
+NPARTITIONS = os.cpu_count()
 
 
 def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
@@ -21,12 +24,12 @@ def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
     Returns:
         geopandas.GeoDataFrame: GeoPandas dataframe
     """
-    df = ds.to_dataframe().reset_index()
-    geometry = gpd.points_from_xy(df.x, df.y)
-    gdf = gpd.GeoDataFrame(data=df, crs=ds.rio.crs, geometry=geometry)
-    gdf = gdf.drop(columns=["band", "spatial_ref"])
-
-    return gdf
+    df = ds.to_dask_dataframe().reset_index()
+    geometry = dgpd.points_from_xy(df.x, df.y)
+    df = dgpd.from_dask_dataframe(df, geometry=geometry)
+    df = df.set_crs(ds.rio.crs)
+    df = df.drop(columns=["band", "spatial_ref"])
+    return df
 
 
 def tif2gdf(
@@ -44,7 +47,6 @@ def tif2gdf(
         geopandas.GeoDataFrame: GeoPandas data frame
     """
     ds = validate_raster(raster)
-
     band_gdfs = []
 
     if band_id:
@@ -86,7 +88,14 @@ def merge_dfs(
     Returns:
         Union[pd.DataFrame, gpd.GeoDataFrame]: Merged DataFrame
     """
-    merged_gdf = reduce(lambda left, right: pd.merge(left, right, how=how), gdfs)
+    merged_gdf = reduce(lambda left, right: left.merge(right, how=how), gdfs)
+
+    # For some reason the merge() method for dask geodataframes returns a pandas
+    # dataframe when computed, so we need to compute it and then convert it back to a
+    # dask geodataframe
+    # merged_gdf = merged_gdf.compute()
+    # merged_gdf = gpd.GeoDataFrame(merged_gdf, crs=crs, geometry=merged_gdf.geometry)
+    merged_gdf = dgpd.from_dask_dataframe(merged_gdf, geometry=merged_gdf.geometry)
 
     return merged_gdf
 
@@ -203,9 +212,7 @@ def get_epsg(raster: Union[str, os.PathLike, xr.DataArray]) -> int:
     return int(dataset.rio.crs.to_epsg())
 
 
-def validate_raster(
-    raster: Union[str, os.PathLike, xr.DataArray]
-) -> Union[xr.Dataset, xr.DataArray]:
+def validate_raster(raster: Union[str, os.PathLike, xr.DataArray]) -> xr.DataArray:
     """Validate a raster dataset.
 
     Args:
@@ -216,7 +223,7 @@ def validate_raster(
     """
     if isinstance(raster, (str, os.PathLike)):
         name = os.path.splitext(os.path.basename(raster))[0]
-        dataset = riox.open_rasterio(raster, masked=True, default_name=name)
+        dataset = xr.open_dataarray(raster, masked=True, default_name=name)
         if isinstance(dataset, list):
             dataset = dataset[0]
         return dataset
@@ -230,15 +237,15 @@ def validate_raster(
 def netcdf2gdf(da: xr.DataArray, data_label: str, name: str) -> gpd.GeoDataFrame:
     """Converts a netCDF dataset to a GeoDataFrame"""
     # Convert to a DataFrame
-    df = da.to_dataframe()
-    df = df.reset_index()
+    df = da.to_dask_dataframe().reset_index()
     df = df.rename(columns={"lon": "x", "lat": "y"})
     df = df.dropna(subset=["x", "y"])
-    df = df.drop(columns=["month"])
+    if "months" in df.columns:
+        df = df.drop(columns=["month"])
     df = df.rename(columns={data_label: name})
-    geometry = gpd.points_from_xy(df.x, df.y)
-    df = gpd.GeoDataFrame(df, geometry=geometry)
-    df.set_crs(epsg="4326", inplace=True)
+    geometry = dgpd.points_from_xy(df.x, df.y)
+    df = dgpd.from_dask_dataframe(df, geometry=geometry)
+    df = df.set_crs("EPSG:4326")
     return df
 
 
@@ -259,20 +266,35 @@ def ts_netcdf2gdfs(
     gdfs = []
 
     if isinstance(ds, (str, os.PathLike)):
+        band_name = str(ds).split("_")[0].lower() + "_band"
         ds = xr.open_dataset(ds)
 
     data_label = str(list(ds.keys())[0])  # assume that the first variable is the data
 
-    for da in ds[data_label]:
-        month = int(da.month.values)
+    if data_label == "Band1":
+        # In this case, the GDAL resampling resulted in the "month" dimension being
+        # expanded into 12 separate data variables. This could be cleaned up as a TODO.
+        for i in range(1, 13):
+            data_label = f"Band{i}"
+            da = ds[data_label]
 
-        if ds_name:
-            da_name = f"{ds_name}_{data_label}_m{month:02d}"
-        else:
-            da_name = f"{data_label}_m{month:02d}"
+            if ds_name:
+                da_name = f"{ds_name}_{band_name}_m{i:02d}"
+            else:
+                da_name = f"{data_label}_m{i:02d}"
+            df = netcdf2gdf(da, data_label, da_name)
+            gdfs.append(df)
+    else:
+        for da in ds[data_label]:
+            month = int(da.month.values)
 
-        df = netcdf2gdf(da, data_label, da_name)
-        gdfs.append(df)
+            if ds_name:
+                da_name = f"{ds_name}_{data_label}_m{month:02d}"
+            else:
+                da_name = f"{data_label}_m{month:02d}"
+
+            df = netcdf2gdf(da, data_label, da_name)
+            gdfs.append(df)
 
     if len(gdfs) > 1:
         gdf = merge_dfs(gdfs)
@@ -292,6 +314,7 @@ def mask_oceans(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         gpd.GeoDataFrame: GeoDataFrame with oceans masked.
     """
     land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
-    land_mask.to_crs(gdf.crs, inplace=True)
-
-    return gpd.clip(gdf, land_mask)
+    land_mask = land_mask.to_crs(gdf.crs)
+    # if isinstance(gdf, dgpd.GeoDataFrame):
+    #     gdf = gdf.compute()
+    return gdf.clip(land_mask)

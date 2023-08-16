@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
+import time
 import warnings
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
+import dask.dataframe as dd
+import dask_geopandas as dgpd
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -60,24 +63,36 @@ def build_collection(
         thresh = None
 
     predictor_names = ["MOD09GA.061", "ISRIC_soil", "WC_BIO", "VODCA"]
+    # predictor_names = ["MOD09GA.061"]
     predictor_ids = [f"{id}_{res_str}" for id in predictor_names]
+
     X = DataCollection.from_ids(predictor_ids)
 
-    # Mask non-land points
-    land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
-    X.df = gpd.clip(X.df, land_mask)
+    # # Mask non-land points
+    # print("Masking non-land points")
+    # land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
+    # X.df = dgpd.clip(X.df, land_mask)
 
-    X.df = X.df.dropna(axis=1, how="all")  # Drop any all-NaN columns
+    # print("Dropping NaN columns from X")
+    # X.df = X.df.dropna(axis=1, how="all")  # Drop any all-NaN columns
+    # Drop any all-NaN columns (this is slow and ugly but necessary due to limitations
+    # in dask_geopandas)
+    # start = time.time()
+    # X.df = X.df.loc[:, ~X.df.isna().all().compute()]
+    # end = time.time()
+    # print(f"Took: {(end - start) / 60:.2f} minutes")
 
-    X_cols = X.df.columns.difference(["geometry"])
+    print("Getting X cols")
+    X_cols = X.cols
 
+    print("Dropping NaN rows from X")
     if nan_strategy == "all":
-        X.df = X.df.dropna(axis=0, subset=X_cols, how="all")
+        X.df = X.df.dropna(subset=X_cols, how="all")
     elif nan_strategy == "any":
         if thresh is None:
-            X.df = X.df.dropna(axis=0, subset=X_cols, how="any")
+            X.df = X.df.dropna(subset=X_cols, how="any")
         else:
-            X.df = X.df.dropna(axis=0, subset=X_cols, thresh=int(thresh * len(X_cols)))
+            X.df = X.df.dropna(subset=X_cols, thresh=int(thresh * len(X_cols)))
 
     collection_name = "_".join(predictor_names)
     collection_name += f"_{res_str}"
@@ -128,21 +143,19 @@ def save_collection(
         else:
             df = pd.DataFrame(data, columns=df.columns)
 
-    print("Saving collection")
-    out_dir = Path("data/collections")
-    out_dir.mkdir(exist_ok=True, parents=True)
-
     if impute_missing:
         out_stem = f"{collection_name}_imputed"
     else:
         out_stem = collection_name
 
-    if isinstance(df, gpd.GeoDataFrame):
-        out_fn = out_dir / f"{out_stem}.feather"
-        df.to_feather(out_fn)
-    elif isinstance(df, pd.DataFrame):
-        out_fn = out_dir / f"{out_stem}.csv"
-        df.to_csv(out_fn, index=False)
+    if isinstance(
+        df, (gpd.GeoDataFrame, dgpd.GeoDataFrame, pd.DataFrame, dd.DataFrame)
+    ):
+        print("Saving collection...")
+        out_dir = Path("data/collections")
+        out_dir.mkdir(exist_ok=True, parents=True)
+        out_fn = out_dir / f"{out_stem}.parquet"
+        df.to_parquet(out_fn)
     else:
         raise TypeError("df must be a GeoDataFrame or DataFrame")
 
