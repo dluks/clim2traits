@@ -1,5 +1,3 @@
-import os
-
 from utils.dataset_tools import Unit
 from utils.datasets import CollectionName, Dataset, resample_dataset
 
@@ -9,14 +7,13 @@ vodca = Dataset(
     collection_name=CollectionName.VODCA,
 )
 
+soil = Dataset(
+    res=1,
+    unit=Unit.KILOMETER,
+    collection_name=CollectionName.SOIL,
+)
+
 
 if __name__ == "__main__":
-    os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
     # Uncomment to resample the VODCA dataset to another resolution
-    resample_dataset(
-        dataset=vodca,
-        resolution=0.01,
-        unit=Unit.DEGREE,
-        format="netcdf",
-        mf=False,
-    )
+    resample_dataset(dataset=soil, resolution=0.01, unit=Unit.DEGREE, resample_alg=4)

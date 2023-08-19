@@ -9,9 +9,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Optional, Union
 
-import dask_geopandas as dgpd
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 import rioxarray as riox  # type: ignore
 import xarray as xr
@@ -303,13 +301,6 @@ class Dataset:
                 self.res_str,
                 f"{prefix}*.{self.file_ext.value}",
             )
-        elif self.collection_name == CollectionName.SOIL:
-            search_str = os.path.join(
-                self.parent_dir,
-                self.res_str,
-                "*",
-                f"*.{self.file_ext.value}",
-            )
         else:
             search_str = os.path.join(
                 self.parent_dir, self.res_str, f"*.{self.file_ext.value}"
@@ -495,9 +486,8 @@ def resample_dataset(
     dataset: Dataset,
     resolution: Union[float, int],
     unit: Unit,
-    format: str = "netcdf",
-    mf: bool = False,
-    chunks: Union[dict, str] = "auto",
+    format: str = "GTiff",
+    resample_alg: int = 0,
 ) -> None:
     """Resamples a dataset to a new resolution and unit.
 
@@ -506,11 +496,10 @@ def resample_dataset(
         resolution (Union[float, int]): New resolution.
         unit (Unit): New unit.
         format (str, optional): Format of the output file. Options are ["GTiff",
-            "netcdf", "zarr"]. Defaults to "netcdf".
-        mf (bool, optional): Whether to open files as a multi-file dataset. Defaults to
-            False.
-        chunks (Union[dict, str], optional): Chunks for the output dataset. Defaults to
-            "auto".
+            "netcdf", "zarr"]. Defaults to "GTiff".
+        resample_alg (int, optional): Resampling algorithm. See
+            https://rasterio.readthedocs.io/en/stable/api/rasterio.enums.html#rasterio.enums.Resampling
+            for options. Defaults to 0.
     """
     # Check if the dataset resolution is the same as the new resolution
     if dataset.res == resolution and dataset.unit == unit:
@@ -533,142 +522,45 @@ def resample_dataset(
     elif format == "zarr":
         ext = ".zarr"
 
-    if mf:
-        ds = xr.open_mfdataset(dataset.fpaths, parallel=True, chunks=chunks)
-        ds = reproject_dataset(ds, resolution, dataset.id)
-        fpath = new_dir / f"{dataset.id}{ext}"
-        write_dataset(ds, fpath, format)
+    for fpath in dataset.fpaths:
+        fpath = Path(fpath)
+        new_fname = fpath.name.replace(dataset.res_str, f"{resolution}_{unit.abbr}")
 
-        print("Reprojecting...")
-        ds = reproject_dataset(ds, res, ds_name)
+        # Create the new filename
+        new_fpath = new_dir / new_fname
+        new_fpath = new_fpath.with_suffix(ext)
 
-        print("Writing...")
-        # Write the dataset (necessary because clipping can only utilize chunks if
-        # it is first written to and then read from disk)
-        write_dataset(ds, fpath, format)
-        ds.close()
+        ds_name = new_fpath.stem
 
-        print("Clipping...")
-        # Load the dataset and clip
-        ds = xr.open_dataset(fpath, chunks=chunks)
+        print(str(new_fpath))
+
+        # Open the dataset
+        if fpath.suffix == ".tif":
+            ds = riox.open_rasterio(fpath, masked=True, lock=False)
+        else:
+            ds = xr.open_dataset(fpath)
+
+        # set CRS to EPSG: 4326 if it doesn't exist
+        if not ds.rio.crs:
+            ds.rio.write_crs("EPSG:4326", inplace=True)
+
+        ds = ds.rio.reproject(
+            dst_crs="EPSG:4326", resolution=res, resampling=resample_alg, num_threads=18
+        )
+
         ds = clip_and_pad_dataset(ds)
 
-        print("Writing again...")
-        write_dataset(ds, fpath, format)
-    else:
-        for fpath in dataset.fpaths[:1]:
-            fpath = Path(fpath)
-            new_fname = fpath.name.replace(dataset.res_str, f"{resolution}_{unit.abbr}")
+        write_dataset(ds, new_fpath, format)
 
-            if dataset.collection_name == CollectionName.SOIL:
-                # Append the soil variable subdirectory
-                soil_var_dir = new_dir / fpath.parts[-2]
-                soil_var_dir.mkdir(parents=True, exist_ok=True)
-                new_fname = Path(soil_var_dir, new_fname)
-
-            # Create the new filename
-            new_fpath = new_dir / new_fname
-            new_fpath = new_fpath.with_suffix(ext)
-
-            ds_name = new_fpath.stem
-
-            print(str(new_fpath))
-
-            # # Open the dataset
-            # if fpath.suffix == ".tif":
-            #     ds = riox.open_rasterio(fpath, masked=True, chunks=chunks, lock=False)
-            # else:
-            #     ds = xr.open_dataset(fpath, chunks=chunks)
-
-            # print("Reprojecting...")
-            # ds = reproject_dataset(ds, res, ds_name)
-
-            # print("Writing...")
-            # # Write the dataset (necessary because clipping can only utilize chunks if
-            # # it is first written to and then read from disk)
-            # write_dataset(ds, new_fpath, format)
-            # ds.close()
-
-            print("Clipping...")
-            # Load the dataset and clip
-            ds = xr.open_dataset(new_fpath, engine="netcdf4", chunks=chunks)
-            ds = clip_and_pad_dataset(ds)
-            # ds.close()
-            # add "_clipped" to the path
-            new_fpath = new_fpath.with_name(
-                f"{new_fpath.stem}_clipped{new_fpath.suffix}"
-            )
-            print("Writing again...")
-            write_dataset(ds, new_fpath, format)
-            # ds = resample_gdal(
-            #     in_fn=str(fpath),
-            #     out_fn=str(new_fpath),
-            #     res=res,
-            #     epsg=f"EPSG:4326",
-            #     globe=True,
-            #     format=format,
-            # )
-
-    ds.close()
-    del ds
-
-
-def reproject_dataset(ds: xr.Dataset, res: float, ds_name: str) -> xr.Dataset:
-    # set CRS to EPSG: 4326 if it doesn't exist
-    if not ds.rio.crs:
-        ds.rio.write_crs("EPSG:4326", inplace=True)
-
-    # Make an empty dataset with the new extent and resolution
-    # Define the global extent
-    xmin, ymin, xmax, ymax = (-180.0, -90.0, 180.0, 90.0)
-
-    # Calculate the number of rows and columns based on the resolution
-    nrows = int((ymax - ymin) / res)
-    ncols = int((xmax - xmin) / res)
-
-    # Coordinates represent the center of the grid cells, so we need to adjust the
-    # coordinates by half the resolution
-    shift = res / 2
-    y = np.linspace(ymax - shift, ymin + shift, nrows)
-    x = np.linspace(xmin + shift, xmax - shift, ncols)
-
-    # Create the empty DataArray with the desired dimensions and fill value
-    target_grid = xr.DataArray(
-        data=np.ones((nrows, ncols)),
-        dims=("y", "x"),
-        coords={
-            "y": y,
-            "x": x,
-        },
-    )
-
-    target_grid.rio.write_crs("EPSG:4326", inplace=True)  # Set the CRS
-
-    # Reproject to the new CRS and resolution
-    # First rename lat and lon to y and x if they exist in coords
-    if "lat" in ds.coords:
-        ds = ds.rename({"lat": "y"})
-    if "lon" in ds.coords:
-        ds = ds.rename({"lon": "x"})
-
-    # ds = ds.rio.reproject_match(match_data_array=target_grid, resampling=4)
-    ds = ds.rio.reproject(
-        dst_crs="EPSG:4326", resolution=res, resampling=4, num_threads=15
-    )
-
-    # Replace the default variable name with the dataset name
-    if isinstance(ds, xr.DataArray):
-        if ds.name is None:
-            ds = ds.rename(ds_name)
-
-    return ds
+        ds.close()
+        del ds
 
 
 def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
     land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
     if not ds.rio.crs:
         ds.rio.write_crs("EPSG:4326", inplace=True)
-    df = dask_geopandas
+
     ds = ds.rio.clip(
         geometries=land_mask.geometry.values,
         crs=land_mask.crs,
@@ -685,10 +577,12 @@ def write_dataset(ds: xr.Dataset, fpath: Union[str, os.PathLike], format: str) -
     if format == "GTiff":
         ds.rio.to_raster(
             fpath,
-            compress="lzw",
+            compress="zstd",
             tiled=True,
             blockxsize=256,
             blockysize=256,
+            predictor=2,
+            num_threads=18,
         )
     else:
         # Drop "grid_mapping" attr from data variables (netcdf can't handle this)
