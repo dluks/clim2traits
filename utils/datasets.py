@@ -16,7 +16,7 @@ import xarray as xr
 
 from utils.data_retrieval import gdf_from_list
 from utils.dataset_tools import FileExt, Unit
-from utils.geodata import drop_XY_NAs, get_epsg, mask_oceans, merge_dfs
+from utils.geodata import drop_XY_NAs, get_epsg, mask_oceans, merge_gdfs
 from utils.training import TrainingConfig, TrainingRun
 
 
@@ -614,7 +614,7 @@ class DataCollection:
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Returns a GeoDataFrame of all the datasets in the collection"""
-        df = merge_dfs([dataset.df for dataset in self.datasets])
+        df = merge_gdfs([dataset.df for dataset in self.datasets])
         return df
 
     @cached_property

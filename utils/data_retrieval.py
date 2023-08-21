@@ -9,7 +9,7 @@ from typing import Optional
 import geopandas as gpd
 
 from utils.dataset_tools import FileExt
-from utils.geodata import merge_dfs, tif2gdf, ts_netcdf2gdfs
+from utils.geodata import merge_gdfs, tif2gdf, ts_netcdf2gdfs
 
 
 def gdf_from_list(
@@ -36,6 +36,6 @@ def gdf_from_list(
         elif file_ext == FileExt.NETCDF4:
             gdfs.append(ts_netcdf2gdfs(fn, ds_name))
 
-    merged_gdfs = merge_dfs(gdfs)
+    merged_gdfs = merge_gdfs(gdfs)
 
     return merged_gdfs

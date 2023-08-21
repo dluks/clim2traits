@@ -2,13 +2,11 @@
 # Geodata utils
 ################################
 import os
-from functools import reduce
 from typing import Optional, Tuple, Union
 
 import dask_geopandas as dgpd
 import geopandas as gpd
 import pandas as pd
-import rioxarray as riox
 import xarray as xr
 from rasterio.enums import Resampling
 
@@ -65,7 +63,7 @@ def tif2gdf(
             band_gdfs.append(ds2gdf(band_ds))
 
     if len(band_gdfs) > 1:
-        gdf = merge_dfs(band_gdfs)
+        gdf = merge_gdfs(band_gdfs)
     elif len(band_gdfs) == 0:
         raise ValueError("No bands found in raster.")
     else:
@@ -74,28 +72,27 @@ def tif2gdf(
     return gdf
 
 
-def merge_dfs(
-    gdfs: list[Union[pd.DataFrame, gpd.GeoDataFrame]],
+def merge_gdfs(
+    gdfs: list[gpd.GeoDataFrame],
     how: str = "left",
-) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+) -> gpd.GeoDataFrame:
     """Merge GeoDataFrames on matching data
 
     Args:
-        gdfs (list[Union[pd.DataFrame, gpd.GeoDataFrame]]): List of DataFrames to merge
+        gdfs (list[gpd.GeoDataFrame]): List of GeoDataFrames to merge
             on a common column
         how (str, optional): Type of merge to be performed. Defaults to "inner".
 
     Returns:
-        Union[pd.DataFrame, gpd.GeoDataFrame]: Merged DataFrame
+        gpd.GeoDataFrame: Merged DataFrame
     """
-    merged_gdf = reduce(lambda left, right: left.merge(right, how=how), gdfs)
+    geometry = gdfs[0].geometry
+    crs = gdfs[0].crs
+    dfs = [gdf.drop(columns=["geometry"]) for gdf in gdfs]
 
-    # For some reason the merge() method for dask geodataframes returns a pandas
-    # dataframe when computed, so we need to compute it and then convert it back to a
-    # dask geodataframe
-    # merged_gdf = merged_gdf.compute()
-    # merged_gdf = gpd.GeoDataFrame(merged_gdf, crs=crs, geometry=merged_gdf.geometry)
-    merged_gdf = dgpd.from_dask_dataframe(merged_gdf, geometry=merged_gdf.geometry)
+    merged_gdf = gpd.GeoDataFrame(
+        dfs[0].join(dfs[1:], how=how), crs=crs, geometry=geometry
+    )
 
     return merged_gdf
 
@@ -297,7 +294,7 @@ def ts_netcdf2gdfs(
             gdfs.append(df)
 
     if len(gdfs) > 1:
-        gdf = merge_dfs(gdfs)
+        gdf = merge_gdfs(gdfs)
     else:
         gdf = gdfs[0]
 
