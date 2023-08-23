@@ -29,7 +29,6 @@ def gdf_from_list(
     gdfs = []
 
     for fn in fns:
-        print(f"Processing {fn}")
         file_ext = FileExt(Path(fn).suffix[1:])
         if file_ext == FileExt.TIF or file_ext == FileExt.GRID:
             gdfs.append(tif2gdf(fn, band_id=band))

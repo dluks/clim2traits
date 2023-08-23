@@ -4,9 +4,9 @@
 import os
 from typing import Optional, Tuple, Union
 
-import dask_geopandas as dgpd
 import geopandas as gpd
 import pandas as pd
+import rioxarray as riox
 import xarray as xr
 from rasterio.enums import Resampling
 
@@ -22,12 +22,12 @@ def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
     Returns:
         geopandas.GeoDataFrame: GeoPandas dataframe
     """
-    df = ds.to_dask_dataframe().reset_index()
-    geometry = dgpd.points_from_xy(df.x, df.y)
-    df = dgpd.from_dask_dataframe(df, geometry=geometry)
-    df = df.set_crs(ds.rio.crs)
-    df = df.drop(columns=["band", "spatial_ref"])
-    return df
+    df = ds.to_dataframe().reset_index()
+    geometry = gpd.points_from_xy(df.x, df.y)
+    df = df.drop(columns=["band", "spatial_ref", "x", "y"])
+    gdf = gpd.GeoDataFrame(data=df, crs=ds.rio.crs, geometry=geometry)
+
+    return gdf
 
 
 def tif2gdf(
@@ -220,7 +220,7 @@ def validate_raster(raster: Union[str, os.PathLike, xr.DataArray]) -> xr.DataArr
     """
     if isinstance(raster, (str, os.PathLike)):
         name = os.path.splitext(os.path.basename(raster))[0]
-        dataset = xr.open_dataarray(raster, masked=True, default_name=name)
+        dataset = riox.open_rasterio(raster, masked=True, default_name=name)
         if isinstance(dataset, list):
             dataset = dataset[0]
         return dataset
@@ -234,14 +234,14 @@ def validate_raster(raster: Union[str, os.PathLike, xr.DataArray]) -> xr.DataArr
 def netcdf2gdf(da: xr.DataArray, data_label: str, name: str) -> gpd.GeoDataFrame:
     """Converts a netCDF dataset to a GeoDataFrame"""
     # Convert to a DataFrame
-    df = da.to_dask_dataframe().reset_index()
+    df = da.to_dataframe().reset_index()
     df = df.rename(columns={"lon": "x", "lat": "y"})
     df = df.dropna(subset=["x", "y"])
     if "months" in df.columns:
         df = df.drop(columns=["month"])
     df = df.rename(columns={data_label: name})
-    geometry = dgpd.points_from_xy(df.x, df.y)
-    df = dgpd.from_dask_dataframe(df, geometry=geometry)
+    geometry = gpd.points_from_xy(df.x, df.y)
+    df = gpd.GeoDataFrame(df, geometry=geometry)
     df = df.set_crs("EPSG:4326")
     return df
 
