@@ -5,8 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import spacv
-from scipy.spatial.distance import pdist, squareform
-from sklearn.neighbors import BallTree
+from sklearn.metrics import pairwise_distances
 
 from utils.dataset_tools import timer
 
@@ -164,16 +163,17 @@ def apply_weights(data: pd.DataFrame, weights: np.ndarray) -> npt.NDArray:
 @timer
 def nearest_dist(training_data, new_data):
     # Calculate nearest training instance to test data, return Euclidean distances
-    tree = BallTree(training_data)
-    mindist, _ = tree.query(new_data, k=1, return_distance=True)
-    return mindist
+    distances = pairwise_distances(
+        new_data, training_data, metric="euclidean", n_jobs=20
+    ).min(axis=1)
+
+    return distances
 
 
 @timer
 def train_dists(training_data):
     # Build matrix of pairwise distances
-    paired_distances = pdist(training_data)
-    train_dist = squareform(paired_distances)
+    train_dist = pairwise_distances(training_data, metric="euclidean", n_jobs=20)
     np.fill_diagonal(train_dist, np.nan)
     return train_dist
 
