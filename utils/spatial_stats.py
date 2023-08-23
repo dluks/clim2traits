@@ -5,7 +5,9 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import spacv
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import pairwise_distances
+from verstack import NaNImputer
 
 from utils.dataset_tools import timer
 
@@ -133,6 +135,11 @@ and new dataframe ({len(new_df.columns)}) must be the same."
     training_data = normalize(training_data)
     new_data = normalize(new_data)
 
+    # Impute missing values in new_data
+    print("Imputing missing values...")
+    new_data = pd.DataFrame(new_data, columns=data_cols)
+    new_data = impute_missing(new_data)
+
     # Convert back to dataframes to apply feature weights by column
     training_data = pd.DataFrame(training_data, columns=data_cols)
     new_data = pd.DataFrame(new_data, columns=data_cols)
@@ -143,6 +150,10 @@ and new dataframe ({len(new_df.columns)}) must be the same."
         training_data, new_data = map(
             lambda x: apply_weights(x, weights), [training_data, new_data]
         )
+
+    # Return train and new to numpy arrays
+    training_data = training_data.to_numpy()
+    new_data = new_data.to_numpy()
 
     print("Calculating nearest training instance...")
     mindist = nearest_dist(training_data, new_data)
@@ -164,15 +175,47 @@ and new dataframe ({len(new_df.columns)}) must be the same."
 
 def normalize(data: npt.NDArray) -> npt.NDArray:
     """Normalize data to mean 0 and standard deviation 1."""
-    return (data - np.mean(data)) / np.std(data)
+    return (data - np.nanmean(data)) / np.nanstd(data)
 
 
-def apply_weights(data: pd.DataFrame, weights: np.ndarray) -> npt.NDArray:
+def apply_weights(data: pd.DataFrame, weights: np.ndarray) -> pd.DataFrame:
     """Apply feature weights to data."""
     for col, weight in weights:
         weight = float(weight)
         data[col] = data[col] * weight
-    return data.to_numpy()
+    return data
+
+
+def impute_missing(data: pd.DataFrame) -> npt.NDArray:
+    """Impute missing values."""
+
+    first_imp = NaNImputer(verbose=False)
+    res = first_imp.impute(data)
+
+    # Re-add dropped columns from first imputation
+    dropped_cols = data.columns.difference(res.columns)
+    res = pd.concat([res, data[dropped_cols]], axis=1)
+    # Return order of columns to match original data
+    res = res[data.columns]
+    res = res.to_numpy()
+    # Fill remaining missing values with simple imputer
+    second_imp = SimpleImputer(strategy="mean")
+    return second_imp.fit_transform(res)
+
+
+# @timer
+# def nearest_dist(training_data, new_data):
+#     # Calculate nearest training instance to test data, return Euclidean distances
+#     with mp.Pool() as pool:
+#         results = [
+#             pool.apply_async(
+#                 BallTree(training_data).query, args=(new_data[i : i + 1000], 1, True)
+#             )
+#             for i in range(0, len(new_data), 1000)
+#         ]
+#         distances = np.concatenate([result.get()[0] for result in results])
+
+#     return distances
 
 
 @timer
