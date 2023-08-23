@@ -152,10 +152,8 @@ class TrainingRun:
         y_col (str): Name of target response variable.
         training_config (TrainingConfig): Training configuration.
         results (dict): Dictionary to store the results of the training run.
-        X_train (ndarray): Training input data.
-        X_test (ndarray): Testing input data.
-        y_train (ndarray): Training target data.
-        y_test (ndarray): Testing target data.
+        X (ndarray): Input data.
+        y (ndarray): Target data.
         coords_train (ndarray): Coordinates for the training data.
         coords_test (ndarray): Coordinates for the testing data.
 
@@ -224,21 +222,22 @@ class TrainingRun:
         self.results.n_obs = len(Xy)
 
         # Split the data into X, y, and coordinates
-        X = Xy[X_cols].to_numpy()
-        y = Xy[y_col].to_numpy()
-        coords = Xy["geometry"]
+        self.X = Xy[X_cols].to_numpy()
+        self.y = Xy[y_col].to_numpy()
+        self.coords = Xy["geometry"]
 
         # Get the 5th and 95th percentiles of the target variable to avoid outliers when
         # calculating the range (used for calculating the normalized RMSE)
-        y_95 = np.percentile(y, 95)
-        y_05 = np.percentile(y, 5)
+        y_95 = np.percentile(self.y, 95)
+        y_05 = np.percentile(self.y, 5)
         self.y_range = float(y_95 - y_05)
 
-        # Split the data into training and testing sets
+        # Split the data into training and testing sets (not really sure why I did this
+        # anymore)
         tt_splits = train_test_split(
-            X,
-            y,
-            coords,
+            self.X,
+            self.y,
+            self.coords,
             test_size=self.training_config.train_test_split,
             random_state=self.training_config.random_state,
         )
@@ -280,8 +279,8 @@ class TrainingRun:
     def spatial_cv(self) -> Iterable[Tuple[npt.NDArray, npt.NDArray]]:
         """Spatial CV iterator"""
         cv = block_cv_splits(
-            X=self.X_train,
-            coords=self.coords_train,
+            X=self.X,
+            coords=self.coords,
             grid_size=self.training_config.cv_grid_size,
             buffer_radius=self.training_config.cv_block_buffer,
             n_groups=self.training_config.cv_n_groups,
@@ -297,8 +296,8 @@ class TrainingRun:
     def tune_params_cv(self):
         """Tune model hyperparameters with spatial CV and save results"""
         reg = optimize_params(
-            X=self.X_train,
-            y=self.y_train,
+            X=self.X,
+            y=self.y,
             col_name=self.y_col,
             cv=self.spatial_cv,
             n_trials=self.training_config.search_n_trials,
@@ -323,8 +322,8 @@ class TrainingRun:
         """Train model with spatial CV and save results"""
         cv_results = train_model_cv(
             model_params=self.results.params,
-            X=self.X_train,
-            y=self.y_train,
+            X=self.X,
+            y=self.y,
             cv=self.spatial_cv,
             n_jobs=self.training_config.n_jobs,
             verbose=1,
@@ -357,10 +356,8 @@ class TrainingRun:
 
         model, r2 = train_model_full(
             model_params=self.results.params,
-            X_train=self.X_train,
-            y_train=self.y_train,
-            X_test=self.X_test,
-            y_test=self.y_test,
+            X=self.X,
+            y=self.y,
             n_jobs=self.training_config.n_jobs,
             random_state=self.training_config.random_state,
         )
@@ -525,10 +522,8 @@ def train_model_cv(
 
 def train_model_full(
     model_params: dict,
-    X_train: npt.NDArray,
-    y_train: npt.NDArray,
-    X_test: npt.NDArray,
-    y_test: npt.NDArray,
+    X: npt.NDArray,
+    y: npt.NDArray,
     verbose: int = 0,
     n_jobs: int = -1,
     random_state: int = 42,
@@ -540,15 +535,13 @@ def train_model_full(
         **model_params,
         booster="gbtree",
         importance_type="gain",
-        early_stopping_rounds=2000,
-        eval_metric=mean_squared_error,
         n_jobs=n_jobs,
         random_state=random_state,
     )
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    model.fit(X, y, verbose=False)
 
     # Evaluate prediction on test data
-    r2 = model.score(X_test, y_test)
+    r2 = model.score(X, y)
 
     return model, r2
 
