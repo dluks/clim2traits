@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Tuple, Union
+from typing import Any, Generator, Optional, Sequence, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -20,7 +20,7 @@ def block_cv_splits(
     n_groups: int = 10,
     random_state: int = 42,
     verbose: int = 0,
-) -> Sequence:
+) -> Generator[tuple[npt.NDArray, Any], Any, None]:
     """Define spatial folds for cross-validation
 
     Args:
