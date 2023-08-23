@@ -5,16 +5,16 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional, Sequence
 from typing import SupportsFloat as Numeric
 from typing import Tuple, Union
 
+import geopandas as gpd
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from ray import tune
 from ray.tune.sklearn import TuneSearchCV
-from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import BaseCrossValidator, cross_validate, train_test_split
 from xgboost import XGBRegressor
 
@@ -23,7 +23,7 @@ from utils.spatial_stats import block_cv_splits
 if TYPE_CHECKING:
     from utils.datasets import MLCollection
 
-from utils.geodata import drop_XY_NAs
+from utils.geodata import drop_XY_NAs, merge_gdfs
 
 
 @dataclass
@@ -217,7 +217,7 @@ class TrainingRun:
         # We need to combine the X and y dataframes to make sure that all y rows
         # that contain NA values are dropped in both the X and y dataframes
         Xy = self.XY.df[["geometry", *self.XY.X.cols, self.y_col]]
-        Xy, X_cols, y_cols = drop_XY_NAs(Xy, XY.X.cols, y_col, True)
+        Xy, X_cols, _ = drop_XY_NAs(Xy, XY.X.cols, y_col, True)
         self.predictor_names = X_cols.values
         self.results.n_obs = len(Xy)
 
@@ -276,7 +276,7 @@ class TrainingRun:
         return d
 
     @cached_property
-    def spatial_cv(self) -> Iterable[Tuple[npt.NDArray, npt.NDArray]]:
+    def spatial_cv(self) -> Sequence[Tuple[npt.NDArray, npt.NDArray]]:
         """Spatial CV iterator"""
         cv = block_cv_splits(
             X=self.X,
@@ -307,7 +307,7 @@ class TrainingRun:
             random_state=self.training_config.random_state,
             n_jobs=self.training_config.n_jobs,
         )
-        params = reg.best_params
+        params = reg.best_params  # type: ignore
         rmses, r2s = get_cv_results(reg, self.training_config.cv_n_groups)
         cv_nrmse, cv_nrmse_std = normalize_to_range(rmses, self.y_range)
         cv_r2, cv_r2_std = r2s.mean(), r2s.std()
@@ -424,7 +424,7 @@ def optimize_params(
     random_state: int = 0,
     n_jobs: int = -1,
     verbose: int = 0,
-) -> tuple:
+) -> TuneSearchCV:
     """Optimize XGBoost model hyperparameters using Ray Tune and Hyperopt.
 
     Args:
@@ -459,7 +459,7 @@ def optimize_params(
         param_space,
         n_trials=n_trials,
         scoring={"rmse": "neg_root_mean_squared_error", "r2": "r2"},
-        refit="rmse",
+        refit="rmse",  # type: ignore
         n_jobs=n_jobs,
         cv=cv,
         verbose=1,
@@ -502,16 +502,6 @@ def train_model_cv(
 
     model = XGBRegressor(**model_params, booster="gbtree", n_jobs=1)
 
-    # scores = -cross_val_score(
-    #     model,
-    #     X,
-    #     y,
-    #     cv=cv,
-    #     n_jobs=n_jobs,
-    #     verbose=verbose,
-    #     scoring="neg_root_mean_squared_error",
-    # )
-
     cv_results = cross_validate(
         estimator=model,
         X=X,
@@ -522,7 +512,6 @@ def train_model_cv(
         n_jobs=n_jobs,
         verbose=verbose,
     )
-    # mean_rmse, std = np.sqrt(scores).mean(), np.sqrt(scores).std()
 
     return cv_results
 
