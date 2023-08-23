@@ -73,26 +73,37 @@ def tif2gdf(
 
 
 def merge_gdfs(
-    gdfs: list[gpd.GeoDataFrame],
-    how: str = "left",
+    gdfs: list[gpd.GeoDataFrame], expected_geom: str = "matching"
 ) -> gpd.GeoDataFrame:
     """Merge GeoDataFrames on matching data
 
     Args:
         gdfs (list[gpd.GeoDataFrame]): List of GeoDataFrames to merge
             on a common column
-        how (str, optional): Type of merge to be performed. Defaults to "inner".
+        expected_geom (str, optional): Expected geometries across gdfs. Defaults to
+            "matching".
 
     Returns:
         gpd.GeoDataFrame: Merged DataFrame
     """
-    geometry = gdfs[0].geometry
-    crs = gdfs[0].crs
-    dfs = [gdf.drop(columns=["geometry"]) for gdf in gdfs]
+    if expected_geom == "matching":
+        # Check that all geometries are the same
+        if not all(gdf.geometry == gdfs[0].geometry for gdf in gdfs):
+            raise ValueError("Geometries do not match across GeoDataFrames.")
 
-    merged_gdf = gpd.GeoDataFrame(
-        dfs[0].join(dfs[1:], how=how), crs=crs, geometry=geometry
-    )
+        geometry = gdfs[0].geometry
+        dfs = [gdf.drop(columns=["geometry"]) for gdf in gdfs]
+
+        merged_gdf = gpd.GeoDataFrame(
+            dfs[0].join(dfs[1:], how="left"), crs=crs, geometry=geometry
+        )
+    elif expected_geom == "unique":
+        geometry = [g for gdf in gdfs for g in gdf.geometry]
+        dfs = [gdf.drop(columns=["geometry"]) for gdf in gdfs]
+        merged_gdf = gpd.GeoDataFrame(
+            pd.concat(dfs, ignore_index=True).reset_index(), crs=crs, geometry=geometry
+        )
+    crs = gdfs[0].crs
 
     return merged_gdf
 

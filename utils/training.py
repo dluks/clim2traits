@@ -334,6 +334,14 @@ class TrainingRun:
         cv_est_out_dir = self.results_dir / "cv-estimators"
         cv_est_out_dir.mkdir(parents=True, exist_ok=True)
 
+        save_cv_predictions(
+            X=self.X,
+            coords=self.coords,
+            estimators=cv_results["estimator"],
+            cv=self.spatial_cv,
+            out_dir=self.results_dir,
+        )
+
         for i, est in enumerate(estimators):
             est_fn = cv_est_out_dir / f"{self.y_col}_{self.id}_fold-{i}"
             est.save_model(est_fn)
@@ -516,8 +524,35 @@ def train_model_cv(
     )
     # mean_rmse, std = np.sqrt(scores).mean(), np.sqrt(scores).std()
 
-    # return mean_rmse, std, scores
     return cv_results
+
+
+def save_cv_predictions(
+    X: npt.NDArray,
+    coords: pd.Series,
+    estimators: list,
+    cv: Sequence[Tuple[npt.NDArray, npt.NDArray]],
+    out_dir: pathlib.Path,
+):
+    """Combine predictions from cross-validation to disk
+
+    Args:
+        estimators (list): List of estimators from cross-validation
+        cv (Iterable[Tuple[NDArray, NDArray]]): Cross-validation iterator
+        out_dir (pathlib.Path): Output directory
+    """
+    gdfs = []
+    for i, est in enumerate(estimators):
+        fold_test = X[cv[i][1]]
+        fold_coords = coords[cv[i][1]]
+        y_pred = est.predict(fold_test)
+        # Create a GeoDataFrame with the predictions and coordinates
+        gdf = gpd.GeoDataFrame({"y_pred": y_pred, "geometry": fold_coords})
+        gdfs.append(gdf)
+
+    # Combine all the GeoDataFrames into one
+    merged_gdf = merge_gdfs(gdfs, expected_geom="unique")
+    merged_gdf.to_parquet(out_dir / "cv_predictions.parquet")
 
 
 def train_model_full(
