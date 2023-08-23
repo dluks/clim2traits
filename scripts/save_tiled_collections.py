@@ -48,13 +48,22 @@ def build_and_write_gdf_tile(datasets: list[xr.Dataset], tile: tuple) -> None:
 
     # Convert to dask GeoDataFrame for parallel writing
     tile_gdfs = dgpd.from_geopandas(tile_gdfs, npartitions=20)
-
-    print(f"Writing {tile}...")
-    tile_gdfs.to_parquet(
-        f"{output_dir}/tile_{tile[0]}_{tile[1]}_{tile[2]}_{tile[3]}.parq",
-        compression="zstd",
-        compression_level=1,
+    tile_gdfs = tile_gdfs.dropna(
+        how="all", subset=tile_gdfs.columns.difference(["geometry"])
     )
+    tile_len = len(tile_gdfs)
+
+    if tile_len == 0:
+        print(f"{tile} is empty, skipping...")
+        return None
+    else:
+        print(f"Writing {tile} with {tile_len} rows...")
+        tile_gdfs.to_parquet(
+            f"{output_dir}/tile_{tile[0]}_{tile[1]}_{tile[2]}_{tile[3]}.parq",
+            compression="zstd",
+            compression_level=1,
+        )
+        return None
 
 
 modis = Dataset(
@@ -105,3 +114,4 @@ if __name__ == "__main__":
         results = [pool.apply_async(process_tile, args=(tile,)) for tile in tile_coords]
         [result.get() for result in results]
         pool.close()
+        pool.join()
