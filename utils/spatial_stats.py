@@ -92,7 +92,22 @@ def aoa(
     masked_result : array
         Binary mask that occludes points outside predictive area of applicability.
     """
-    # geometry = new_df.pop("geometry")
+    # Only keep columns that are in both training and new data
+    common_cols = training_df.columns.intersection(new_df.columns)
+    training_df = training_df[common_cols]
+    new_df = new_df[common_cols]
+
+    # Find columns that contain all NaNs in either training or new and drop them from
+    # both dfs as well as weights
+    nan_cols = training_df.columns[
+        training_df.isna().all(axis=0) | new_df.isna().all(axis=0)
+    ]
+    print(f"Droppping {nan_cols}...")
+    training_df = training_df.drop(nan_cols, axis=1)
+    new_df = new_df.drop(nan_cols, axis=1)
+    if weights is not None:
+        weights = weights[~np.isin(weights[:, 0], nan_cols)]
+
     data_cols = training_df.columns
     training_data = training_df[data_cols].to_numpy()
     new_data = new_df[data_cols].to_numpy()
