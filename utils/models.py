@@ -1,8 +1,9 @@
 import ast
+import json
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -231,7 +232,7 @@ class Prediction:
     def __init__(
         self,
         trained_set: TrainedSet,
-        new_data: Union[gpd.GeoDataFrame, pd.DataFrame],
+        new_data: gpd.GeoDataFrame,
         new_data_imputed: Optional[gpd.GeoDataFrame] = None,
     ):
         self.trained_set = trained_set
@@ -240,6 +241,9 @@ class Prediction:
 
     @cached_property
     def df(self) -> gpd.GeoDataFrame:
+        # Make sure train and new columns match by mapping new columns to train columns
+        self.new_data = self.map_new_columns()
+
         prediction = self.trained_set.model.predict(
             self.new_data[self.trained_set.Xy.X.cols].to_numpy()
         )
@@ -257,6 +261,27 @@ class Prediction:
         )
         df["CoV"] = self.cov()
         return df
+
+    def map_new_columns(self) -> gpd.GeoDataFrame:
+        # Load map keys from file (to match training columns with new data columns)
+        with open("data/collections/map_keys.json", "r") as f:
+            map_keys = json.load(f)
+
+        for _, value in map_keys.items():
+            train = value["train"]
+            new = value["new"]
+            # Get matching columns in training and new data
+            train_cols = [
+                col for col in self.trained_set.Xy.X.cols.values if train in col
+            ]
+            new_cols = [col for col in self.new_data.columns.values if new in col]
+
+            # Create mapping dictionary
+            mapping = dict(zip(new_cols, train_cols))
+            # Rename columns to match training data
+            self.new_data.rename(columns=mapping, inplace=True)
+
+        return self.new_data
 
     def aoa(self, threshold: float = 0.95) -> Tuple[np.ndarray, np.ndarray]:
         """Area of Applicability"""
