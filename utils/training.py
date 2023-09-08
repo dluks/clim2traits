@@ -351,6 +351,7 @@ class TrainingRun:
             model_params=self.results.params,
             X=self.X,
             y=self.y,
+            coords=self.coords,
             n_jobs=self.training_config.n_jobs,
             random_state=self.training_config.random_state,
         )
@@ -372,6 +373,8 @@ class TrainingRun:
         )
 
         model.save_model(self.results.model_fn)
+
+        # Get feature importances
         ft_imp = np.column_stack((self.predictor_names, model.feature_importances_))
         # reverse sort by importance (highest to lowest)
         self.results.predictor_importance = ft_imp[
@@ -558,6 +561,7 @@ def train_model_full(
     model_params: dict,
     X: npt.NDArray,
     y: npt.NDArray,
+    coords: pd.Series,
     verbose: int = 0,
     n_jobs: int = -1,
     random_state: int = 42,
