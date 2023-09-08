@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import pathlib
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Optional, Sequence
 from typing import SupportsFloat as Numeric
 from typing import Tuple, Union
@@ -44,7 +44,7 @@ class TrainingResults:
     cv_r2_std: Numeric = 0.0
     test_r2: Numeric = 0.0
     predictor_importance: list = field(default_factory=list)
-    model_fn: pathlib.Path = field(default_factory=pathlib.Path)
+    model_fn: Path = field(default_factory=Path)
     search_n_trials: int = 0
     optimizer: str = ""
     max_iters: int = 0
@@ -110,9 +110,9 @@ class TrainingConfig:
             Defaults to "hyperopt".
         params (dict, optional): Hyperparameter search space. Defaults to {}.
         n_jobs (int, optional): Number of parallel jobs. Defaults to -1.
-        results_dir (pathlib.Path, optional): Path to the directory to save
+        results_dir (Path, optional): Path to the directory to save
             training results. Defaults to "./results".
-        results_csv (pathlib.Path, optional): Path to the CSV file where training
+        results_csv (Path, optional): Path to the CSV file where training
             results are saved. Defaults to results_dir / "training_results.csv".
         random_state (int, optional): Random seed. Defaults to 42.
         filter_y_outliers (Optional[list], optional): Quantile range with which to
@@ -129,8 +129,8 @@ class TrainingConfig:
     params: dict = field(default_factory=dict)
     max_iters: int = 1
     n_jobs: int = -1
-    results_dir: pathlib.Path = pathlib.Path("./results")
-    results_csv: pathlib.Path = pathlib.Path(results_dir) / "training_results.csv"
+    results_dir: Path = Path("./results")
+    results_csv: Path = Path(results_dir) / "training_results.csv"
     random_state: int = 42
     filter_y_outliers: Optional[list] = None
 
@@ -246,14 +246,14 @@ class TrainingRun:
         return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     @property
-    def hyperopt_dir(self) -> pathlib.Path:
+    def hyperopt_dir(self) -> Path:
         """Directory to save hyperopt results"""
         d = self.training_config.results_dir / "ray-results" / self.id
         d.mkdir(parents=True, exist_ok=True)
         return d
 
     @property
-    def results_dir(self) -> pathlib.Path:
+    def results_dir(self) -> Path:
         """Directory to save training results"""
         d = self.training_config.results_dir / "training" / self.id / self.y_col
         d.mkdir(parents=True, exist_ok=True)
@@ -421,7 +421,7 @@ def optimize_params(
     y: npt.NDArray,
     col_name: str,
     cv: Union[BaseCrossValidator, Iterable[Tuple[npt.NDArray, npt.NDArray]]],
-    save_dir: pathlib.Path,
+    save_dir: Path,
     n_trials: int = 10,
     optimizer: str = "hyperopt",
     max_iters: int = 1,
@@ -436,7 +436,7 @@ def optimize_params(
         y (NDArray): Target data.
         col_name (str): Name of the target column.
         cv (BaseCrossValidator): Cross-validation object or iterator.
-        save_dir (pathlib.Path): Directory to save optimization results.
+        save_dir (Path): Directory to save optimization results.
         n_trials (int, optional): Number of trials. Defaults to 10.
         random_state (int, optional): Random seed. Defaults to 0.
         n_jobs (int, optional): Number of parallel jobs. Defaults to -1.
@@ -526,7 +526,7 @@ def save_cv_predictions(
     coords: pd.Series,
     estimators: list,
     cv: Sequence[Tuple[npt.NDArray, npt.NDArray]],
-    out_dir: pathlib.Path,
+    out_dir: Path,
 ):
     """Combine predictions from cross-validation to disk
 
@@ -585,13 +585,13 @@ def train_model_full(
 
 
 def save_training_run_results(
-    fn: pathlib.Path,
+    fn: Path,
     df: pd.DataFrame,
 ) -> None:
     """Save training results to csv and return dataframe
 
     Args:
-        fn (pathlib.Path): Path to CSV file (will be created if it doesn't exist)
+        fn (Path): Path to CSV file (will be created if it doesn't exist)
         df (pd.DataFrame): Dataframe containing training results
     """
 
