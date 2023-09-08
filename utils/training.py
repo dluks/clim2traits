@@ -15,7 +15,7 @@ import numpy.typing as npt
 import pandas as pd
 from ray import tune
 from ray.tune.sklearn import TuneSearchCV
-from sklearn.model_selection import BaseCrossValidator, cross_validate, train_test_split
+from sklearn.model_selection import BaseCrossValidator, cross_validate
 from xgboost import XGBRegressor
 
 from utils.spatial_stats import block_cv_splits
@@ -231,22 +231,6 @@ class TrainingRun:
         y_95 = np.percentile(self.y, 95)
         y_05 = np.percentile(self.y, 5)
         self.y_range = float(y_95 - y_05)
-
-        # Split the data into training and testing sets (not really sure why I did this
-        # anymore)
-        tt_splits = train_test_split(
-            self.X,
-            self.y,
-            self.coords,
-            test_size=self.training_config.train_test_split,
-            random_state=self.training_config.random_state,
-        )
-        self.X_train = tt_splits[0]
-        self.X_test = tt_splits[1]
-        self.y_train = tt_splits[2]
-        self.y_test = tt_splits[3]
-        self.coords_train = tt_splits[4]
-        self.coords_test = tt_splits[5]
 
     @cached_property
     def id(self) -> str:
