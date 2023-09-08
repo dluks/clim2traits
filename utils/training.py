@@ -336,6 +336,7 @@ class TrainingRun:
 
         save_cv_predictions(
             X=self.X,
+            y=self.y,
             coords=self.coords,
             estimators=cv_results["estimator"],
             cv=self.spatial_cv,
@@ -368,6 +369,22 @@ class TrainingRun:
             y=self.y,
             n_jobs=self.training_config.n_jobs,
             random_state=self.training_config.random_state,
+        )
+
+        # Save predicted vs observed to disk as GeoDataFrame
+        y_pred = model.predict(self.X)
+        gdf = gpd.GeoDataFrame(
+            {
+                "predicted": y_pred,
+                "observed": self.y,
+            },
+            geometry=self.coords,
+            crs="EPSG:4326",
+        )
+        gdf.to_parquet(
+            Path(self.results_dir, "full_model_predicted_vs_observed.parq"),
+            compression="zstd",
+            compression_level=2,
         )
 
         model.save_model(self.results.model_fn)
@@ -518,6 +535,7 @@ def train_model_cv(
 
 def save_cv_predictions(
     X: npt.NDArray,
+    y: npt.NDArray,
     coords: pd.Series,
     estimators: list,
     cv: Sequence[Tuple[npt.NDArray, npt.NDArray]],
@@ -528,20 +546,28 @@ def save_cv_predictions(
     Args:
         estimators (list): List of estimators from cross-validation
         cv (Iterable[Tuple[NDArray, NDArray]]): Cross-validation iterator
-        out_dir (pathlib.Path): Output directory
+        out_dir (Path): Output directory
     """
     gdfs = []
     for i, est in enumerate(estimators):
-        fold_test = X[cv[i][1]]
-        fold_coords = coords[cv[i][1]]
-        y_pred = est.predict(fold_test)
-        # Create a GeoDataFrame with the predictions and coordinates
-        gdf = gpd.GeoDataFrame({"y_pred": y_pred, "geometry": fold_coords})
+        fold_X_test = X[cv[i][1]]
+        fold_coords = coords.values[cv[i][1]]
+        y_pred = est.predict(fold_X_test)
+        # Create a GeoDataFrame with the predictions, observed, and coordinates
+        gdf = gpd.GeoDataFrame(
+            {
+                "predicted": y_pred,
+                "observed": y[cv[i][1]],
+                "fold": i,
+            },
+            geometry=fold_coords,
+            crs="EPSG:4326",
+        )
         gdfs.append(gdf)
 
     # Combine all the GeoDataFrames into one
-    merged_gdf = merge_gdfs(gdfs, expected_geom="unique")
-    merged_gdf.to_parquet(out_dir / "cv_predictions.parquet")
+    merged_gdf = merge_gdfs(gdfs, method="unique")
+    merged_gdf.to_parquet(out_dir / "cv_predictions.parq")
 
 
 def train_model_full(
