@@ -6,7 +6,7 @@ import numpy.typing as npt
 import pandas as pd
 import spacv
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import pairwise_distances
+from sklearn.metrics import pairwise_distances, pairwise_distances_chunked
 from verstack import NaNImputer
 
 from utils.dataset_tools import timer
@@ -104,7 +104,7 @@ def aoa(
     nan_cols = training_df.columns[
         training_df.isna().all(axis=0) | new_df.isna().all(axis=0)
     ]
-    print(f"Droppping {nan_cols}...")
+    print(f"Dropping {nan_cols}...")
     training_df = training_df.drop(nan_cols, axis=1)
     new_df = new_df.drop(nan_cols, axis=1)
     if weights is not None:
@@ -129,46 +129,55 @@ and new dataframe ({len(new_df.columns)}) must be the same."
         raise ValueError(
             "Number of columns in training data and weights must be the same."
         )
-
-    # Scale data
+    # Scale data =============================================================
     print("Scaling data...")
     training_data = normalize(training_data)
     new_data = normalize(new_data)
 
-    # Impute missing values in new_data
-    print("Imputing missing values...")
+    # Impute missing values ==================================================
     new_data = pd.DataFrame(new_data, columns=data_cols)
-    new_data = impute_missing(new_data)
 
-    # Convert back to dataframes to apply feature weights by column
+    # Check if new data dataframe contains any NaNs
+    if new_data.isnull().values.any():
+        print("Imputing missing values in new data...")
+        new_data = impute_missing(new_data)
+    else:
+        print("No missing values in new data. Not imputing.")
+
     training_data = pd.DataFrame(training_data, columns=data_cols)
-    new_data = pd.DataFrame(new_data, columns=data_cols)
 
-    # Apply feature weights
+    if training_data.isnull().values.any():
+        print("Imputing missing values in training data...")
+        training_data = impute_missing(training_data)
+    else:
+        print("No missing values in training data. Not imputing.")
+
+    # Apply feature weights ==================================================
     if weights is not None:
         print("Applying feature weights...")
         training_data, new_data = map(
             lambda x: apply_weights(x, weights), [training_data, new_data]
         )
 
-    # Return train and new to numpy arrays
     training_data = training_data.to_numpy()
     new_data = new_data.to_numpy()
 
+    # Calculate nearest training instance ====================================
     print("Calculating nearest training instance...")
-    mindist = nearest_dist(training_data, new_data)
+    mindist = nearest_dist_chunked(training_data, new_data)
 
-    print("Calculating pairwise distances...")
-    train_dist = train_dists(training_data)
+    # Calculate pairwise distances ===========================================
+    print("Calculating pairwise distances in training data...")
+    train_dists = calc_train_dists(training_data)
 
-    # Remove data points that are within the same fold
+    # Mask folds =============================================================
     print("Masking training points in same fold...")
     if fold_indices:
         folds = map_folds(fold_indices)
-        train_dist = mask_folds(train_dist, folds)
+        train_dists = mask_folds(train_dists, folds)
 
     print("Calculating AOA...")
-    DIs, masked_result = calc_aoa(mindist, train_dist, thres)
+    DIs, masked_result = calc_aoa(mindist, train_dists, thres)
 
     return DIs, masked_result
 
@@ -186,36 +195,66 @@ def apply_weights(data: pd.DataFrame, weights: np.ndarray) -> pd.DataFrame:
     return data
 
 
-def impute_missing(data: pd.DataFrame) -> npt.NDArray:
+def impute_missing(data: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     """Impute missing values."""
 
-    first_imp = NaNImputer(verbose=False)
-    res = first_imp.impute(data)
+    first_imputer = NaNImputer(verbose=verbose)
+    imputed = first_imputer.impute(data)
 
     # Re-add dropped columns from first imputation
-    dropped_cols = data.columns.difference(res.columns)
-    res = pd.concat([res, data[dropped_cols]], axis=1)
+    dropped_cols = data.columns.difference(imputed.columns)
+    imputed = pd.concat([imputed, data[dropped_cols]], axis=1)
+
     # Return order of columns to match original data
-    res = res[data.columns]
-    res = res.to_numpy()
+    imputed = imputed[data.columns]
+
+    # Confirm that the shape of the imputed data is the same as the original
+    if imputed.shape != data.shape:
+        raise ValueError(
+            f"Imputed data shape ({imputed.shape}) does not match original data shape ({data.shape})"
+        )
+
+    # Get columns that are completely empty and drop them
+    empty_cols = imputed.columns[imputed.isna().all(axis=0)]
+    imputed = imputed.drop(columns=empty_cols)
+
     # Fill remaining missing values with simple imputer
-    second_imp = SimpleImputer(strategy="mean")
-    return second_imp.fit_transform(res)
+    second_imputer = SimpleImputer(strategy="mean")
+    imputed = second_imputer.fit_transform(imputed)
+
+    # convert back to dataframe
+    imputed = pd.DataFrame(imputed, columns=data.columns.difference(empty_cols))
+    # add back empty columns with NaNs
+    imputed = pd.concat([imputed, data[empty_cols].reset_index(drop=True)], axis=1)
+
+    # Confirm that the shape of the imputed data is the same as the original
+    if imputed.shape != data.shape:
+        raise ValueError(
+            f"Imputed data shape ({imputed.shape}) does not match original data shape ({data.shape})"
+        )
+
+    # Confirm that there are no NaNs in the imputed data
+    if imputed.isnull().values.any():
+        raise ValueError("Imputed data contains NaNs.")
+
+    return imputed
+
+    return distances
 
 
-# @timer
-# def nearest_dist(training_data, new_data):
-#     # Calculate nearest training instance to test data, return Euclidean distances
-#     with mp.Pool() as pool:
-#         results = [
-#             pool.apply_async(
-#                 BallTree(training_data).query, args=(new_data[i : i + 1000], 1, True)
-#             )
-#             for i in range(0, len(new_data), 1000)
-#         ]
-#         distances = np.concatenate([result.get()[0] for result in results])
+@timer
+def nearest_dist_chunked(training_data, new_data):
+    # Calculate nearest training instance to test data, return Euclidean distances
+    distances = np.concatenate(
+        [
+            chunk.min(axis=1)
+            for chunk in pairwise_distances_chunked(
+                new_data, training_data, metric="euclidean", n_jobs=20
+            )
+        ]
+    )
 
-#     return distances
+    return distances
 
 
 @timer
@@ -229,11 +268,11 @@ def nearest_dist(training_data, new_data):
 
 
 @timer
-def train_dists(training_data):
+def calc_train_dists(training_data):
     # Build matrix of pairwise distances
-    train_dist = pairwise_distances(training_data, metric="euclidean", n_jobs=20)
-    np.fill_diagonal(train_dist, np.nan)
-    return train_dist
+    train_dists = pairwise_distances(training_data, metric="euclidean", n_jobs=20)
+    np.fill_diagonal(train_dists, np.nan)
+    return train_dists
 
 
 def map_folds(fold_indices):
