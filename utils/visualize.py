@@ -1,10 +1,12 @@
 import math
 import os
+from typing import Union
 
 import cartopy.crs as ccrs
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import spacv
 import xarray as xr
 
@@ -156,11 +158,24 @@ def plot_splits(skcv: spacv.SKCV, XYs: gpd.GeoSeries) -> None:
     for _, test in skcv.split(XYs):
         lon = XYs.iloc[test].x.values
         lat = XYs.iloc[test].y.values
-        ax.plot(
-            lon,
-            lat,
-            ".",
-            markersize="0.5",
-            alpha=1,
-            transform=ccrs.PlateCarree()
-        )
+        ax.plot(lon, lat, ".", markersize="0.5", alpha=1, transform=ccrs.PlateCarree())
+
+
+def plot_distributions(df: Union[gpd.GeoDataFrame, pd.DataFrame], num_cols=4) -> None:
+    num_plots = len(df.columns)
+    num_cols = num_cols
+    num_rows = int(np.ceil(num_plots / num_cols))
+    _, axes = plt.subplots(
+        num_rows, num_cols, figsize=(20, 20), tight_layout=True, dpi=200
+    )
+    for i, col in enumerate(df.columns):
+        ax = axes[i // num_cols, i % num_cols]
+        ax.hist(df[col], bins=50)
+        ax.set_title(col)
+
+    # clean up empty subplots
+    for i in range(num_plots, num_cols * num_rows):
+        ax = axes[i // num_cols, i % num_cols]
+        ax.set_axis_off()
+
+    plt.show()
