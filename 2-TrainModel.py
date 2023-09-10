@@ -169,6 +169,7 @@ if __name__ == "__main__":
         "--filter-outliers", action="store_true", help="Filter out Y outliers"
     )
     parser.add_argument("--debug", action="store_true", help="Debug mode")
+    parser.add_argument("--verbose", action="store_true", help="Verbose mode")
 
     args = parser.parse_args()
 
@@ -177,7 +178,7 @@ if __name__ == "__main__":
     if not args.filter_outliers:
         config.training_config.filter_y_outliers = None
 
-    if args.debug:
+    if args.verbose or args.debug:
         print(f"X", args.X)
         print(f"Y", args.Y)
         print(f"Resolution: {args.res}")
@@ -192,7 +193,7 @@ if __name__ == "__main__":
         X_names=args.X, Y_names=args.Y, res=args.res, X_collection=args.X_collection
     )
 
-    if args.debug:
+    if args.verbose or args.debug:
         print("X datasets:")
         for dataset in XY.X.datasets:
             print(dataset.collection_name)
