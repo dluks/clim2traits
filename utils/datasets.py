@@ -89,11 +89,23 @@ class CollectionName(Enum):
         "gbif",
         Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
     )
+    GBIF_LN = (
+        "GBIF Traits (TRY Gap-Filled, outliers removed, log-transformed)",
+        "GBIF_ln",
+        "gbif_ln",
+        Path("./data/gbif_ln"),
+    )
     SPLOT = (
         "sPlotOpen Traits (TRY Gap-Filled)",
         "sPlotOpen",
         "splot",
         Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
+    )
+    SPLOT_LN = (
+        "sPlotOpen Traits (TRY Gap-Filled, log-transformed)",
+        "sPlotOpen_ln",
+        "splot_ln",
+        Path("./data/splot_ln"),
     )
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
@@ -116,7 +128,13 @@ class CollectionName(Enum):
         Path("./data/worldclim/bio"),
         "wc2.1",
     )
-    VODCA = "VODCA", "VODCA", "vodca", Path("./data/vodca"), "vodca"
+    VODCA = (
+        "VODCA",
+        "VODCA",
+        "vodca",
+        Path("./data/vodca"),
+        ["vodca", "C_2", "Ku_2", "X_2"],
+    )
     OTHER = "Other", "other", "other", Path("./data/other")
 
     @classmethod
@@ -191,7 +209,7 @@ class Dataset:
         self,
         name: str = "",
         res: Union[float, int] = 0.5,
-        unit: Unit = Unit("degree"),
+        unit: Unit = Unit.DEGREE,
         file_ext: FileExt = FileExt.ANY,
         collection_name: CollectionName = CollectionName.OTHER,
         band: Optional[GBIFBand] = None,
@@ -301,6 +319,15 @@ class Dataset:
                 self.res_str,
                 f"{prefix}*.{self.file_ext.value}",
             )
+        elif (
+            self.collection_name == CollectionName.GBIF_LN
+            or self.collection_name == CollectionName.SPLOT_LN
+        ):
+            search_str = os.path.join(
+                self.parent_dir,
+                self.res_str,
+                f"*{self.band.readable}*.parq",
+            )
         else:
             search_str = os.path.join(
                 self.parent_dir, self.res_str, f"*.{self.file_ext.value}"
@@ -380,23 +407,26 @@ class Dataset:
     @cached_property
     def df(self) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Returns a dataframe of the dataset."""
-        if self.collection_name == CollectionName.VODCA:
-            ds_name = self.collection_name.abbr
-        else:
-            ds_name = None
 
         if (
             self.collection_name == CollectionName.GBIF
             or self.collection_name == CollectionName.SPLOT
+            or self.collection_name == CollectionName.GBIF_LN
+            or self.collection_name == CollectionName.SPLOT_LN
         ) and not self.band:
             raise ValueError("Band must be specified for GBIF and sPlot data.")
 
-        print(f"Reading GDFs from fpaths for {self.collection_name.short}...")
-        df = gdf_from_list(
-            fns=self.fpaths,
-            ds_name=ds_name,
-            band=self.band.value if self.band else None,
-        )
+        if (
+            self.collection_name == CollectionName.GBIF_LN
+            or self.collection_name == CollectionName.SPLOT_LN
+        ):
+            df = gpd.read_parquet(self.fpaths[0])
+        else:
+            print(f"Reading GDFs from fpaths for {self.collection_name.short}...")
+            df = gdf_from_list(
+                fns=self.fpaths,
+                band=self.band.value if self.band else None,
+            )
 
         print("Dropping unnecessary columns...")
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
@@ -529,8 +559,6 @@ def resample_dataset(
         # Create the new filename
         new_fpath = new_dir / new_fname
         new_fpath = new_fpath.with_suffix(ext)
-
-        ds_name = new_fpath.stem
 
         print(str(new_fpath))
 
@@ -686,7 +714,7 @@ def dataset_ids_from_df(df: Union[pd.DataFrame, gpd.GeoDataFrame]) -> list[str]:
             if any(feature_key in col for col in df.columns):
                 dataset_ids.append(collection_name.short)
         elif isinstance(feature_key, list):
-            if all(any(key in col for col in df.columns) for key in feature_key):
+            if any(key in col for col in df.columns for key in feature_key):
                 dataset_ids.append(collection_name.short)
     return dataset_ids
 
