@@ -37,20 +37,6 @@ def build_collection(
 
     X = DataCollection.from_ids(predictor_ids)
 
-    # # Mask non-land points
-    # print("Masking non-land points")
-    # land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
-    # X.df = dgpd.clip(X.df, land_mask)
-
-    # print("Dropping NaN columns from X")
-    # X.df = X.df.dropna(axis=1, how="all")  # Drop any all-NaN columns
-    # Drop any all-NaN columns (this is slow and ugly but necessary due to limitations
-    # in dask_geopandas)
-    # start = time.time()
-    # X.df = X.df.loc[:, ~X.df.isna().all().compute()]
-    # end = time.time()
-    # print(f"Took: {(end - start) / 60:.2f} minutes")
-
     print("Getting X cols")
     X_cols = X.cols
 
