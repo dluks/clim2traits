@@ -8,42 +8,12 @@ from typing import Optional, Tuple, Union
 import dask.dataframe as dd
 import dask_geopandas as dgpd
 import geopandas as gpd
-import numpy as np
 import pandas as pd
-from joblib import dump, load
+from joblib import load
 from sklearn.experimental import enable_iterative_imputer  # type: ignore
-from sklearn.impute import IterativeImputer
 
 from utils.datasets import DataCollection
-
-
-def impute(
-    data: np.ndarray,
-    n_iter: int = 10,
-    fitted_imputer: Optional[IterativeImputer] = None,
-    resume_fit: bool = False,
-) -> Tuple[np.ndarray, IterativeImputer]:
-    """Impute missing values using iterative imputer
-
-    Args:
-        data (np.ndarray): Data with missing values
-        n_iter (int, optional): Number of iterations. Defaults to 10.
-
-    Returns:
-        np.ndarray: Imputed data
-    """
-    if fitted_imputer is not None:
-        imp = fitted_imputer
-
-        if resume_fit:
-            imp.fit(data)
-    else:
-        imp = IterativeImputer(max_iter=n_iter, random_state=42, verbose=2)
-        imp.fit(data)
-
-    data_imputed = imp.transform(data)
-
-    return data_imputed, imp
+from utils.spatial_stats import impute_missing
 
 
 def build_collection(
@@ -105,56 +75,38 @@ def build_collection(
 def save_collection(
     df: Union[gpd.GeoDataFrame, pd.DataFrame],
     collection_name: str,
-    impute_missing: bool = False,
+    impute: bool = False,
     n_iter: int = 10,
-    fitted_imputer: Optional[IterativeImputer] = None,
-    resume_fit: bool = False,
-    save_imputer: bool = False,
 ) -> None:
-    if impute_missing:
+    if impute:
         print("Imputing missing values")
 
         data_cols = df.columns.difference(["geometry"])
 
-        if isinstance(df, gpd.GeoDataFrame):
-            # extract x and y from geometry
-            x, y = df.geometry.x, df.geometry.y
-            data = np.c_[df[data_cols].to_numpy(), x, y]
-        else:
-            data = df.to_numpy()
+        # extract x and y from geometry and append as columns
+        df["x"] = df.geometry.x
+        df["y"] = df.geometry.y
 
-        data, imputer = impute(
-            data, n_iter=n_iter, fitted_imputer=fitted_imputer, resume_fit=resume_fit
+        df_imp = impute_missing(df.drop(columns=["geometry"]), verbose=True)
+
+        df_imp = gpd.GeoDataFrame(
+            df_imp.drop(columns=["x", "y"]),
+            columns=data_cols,
+            geometry=df.geometry,
+            index=df.index,
         )
-
-        if fitted_imputer is None and save_imputer:
-            out_dir = Path("models/imputers")
-            out_dir.mkdir(exist_ok=True, parents=True)
-            out_fn = out_dir / f"imputer_{collection_name}.joblib"
-            dump(imputer, out_fn)
-
-        if isinstance(df, gpd.GeoDataFrame):
-            geometry = df.pop("geometry")
-            data = data[:, :-2]  # drop x and y (only needed for imputing)
-            df = gpd.GeoDataFrame(
-                data, columns=data_cols, geometry=geometry, index=df.index
-            )
-        else:
-            df = pd.DataFrame(data, columns=df.columns)
-
-    if impute_missing:
         out_stem = f"{collection_name}_imputed"
     else:
         out_stem = collection_name
 
     if isinstance(
-        df, (gpd.GeoDataFrame, dgpd.GeoDataFrame, pd.DataFrame, dd.DataFrame)
+        df_imp, (gpd.GeoDataFrame, dgpd.GeoDataFrame, pd.DataFrame, dd.DataFrame)
     ):
         print("Saving collection...")
         out_dir = Path("data/collections")
         out_dir.mkdir(exist_ok=True, parents=True)
         out_fn = out_dir / f"{out_stem}.parquet"
-        df.to_parquet(out_fn)
+        df_imp.to_parquet(out_fn, compression="zstd", compression_level=2)
     else:
         raise TypeError("df must be a GeoDataFrame or DataFrame")
 
@@ -221,10 +173,7 @@ if __name__ == "__main__":
     save_collection(
         df,
         collection_name,
-        impute_missing=args.impute_missing,
+        impute=args.impute_missing,
         n_iter=args.n_iter,
-        fitted_imputer=args.fitted_imputer,
-        resume_fit=args.resume_fit,
-        save_imputer=args.save_imputer,
     )
     print("Saving complete")
