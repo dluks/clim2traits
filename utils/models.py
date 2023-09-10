@@ -11,7 +11,6 @@ import pandas as pd
 import seaborn as sns
 import xgboost as xgb
 from matplotlib import pyplot as plt
-from sklearn.model_selection import train_test_split
 
 from utils.datasets import DataCollection, GBIFBand, MLCollection
 from utils.spatial_stats import aoa, block_cv_splits
@@ -33,14 +32,12 @@ class TrainedSet:
     run_id: str
     y_name: str
     Xy: MLCollection
-    Xy_imputed: Optional[MLCollection]
     resolution: float
     params: dict
     n_tuning_iters: int
     stats: Stats
     model_fpath: str
     random_state: int
-    train_test_split: float
     n_cv_groups: int
     cv_grid_size: float
     cv_block_buffer: float
@@ -49,37 +46,15 @@ class TrainedSet:
     optimizer: str
     max_iter: int
     filtered_y_outliers: list
+    Xy_imputed: Optional[MLCollection] = None
 
     def __post_init__(self):
-        tt_splits = train_test_split(
-            self.Xy.df,
-            test_size=self.train_test_split,
-            random_state=self.random_state,
-        )
-
         x_cols = self.Xy.X.cols
         y_cols = self.Xy.Y.cols
 
-        self.X_train = tt_splits[0][x_cols]
-        self.X_test = tt_splits[1][x_cols]
-        self.y_train = tt_splits[0][y_cols]
-        self.y_test = tt_splits[1][y_cols]
-        self.coords_train = tt_splits[0]["geometry"]
-        self.coords_test = tt_splits[1]["geometry"]
-
-        if self.Xy_imputed is not None:
-            tt_splits = train_test_split(
-                self.Xy_imputed.df,
-                test_size=self.train_test_split,
-                random_state=self.random_state,
-            )
-
-            self.X_train_imputed = tt_splits[0][x_cols]
-            self.X_test_imputed = tt_splits[1][x_cols]
-            self.y_train_imputed = tt_splits[0][y_cols]
-            self.y_test_imputed = tt_splits[1][y_cols]
-            self.coords_train_imputed = tt_splits[0]["geometry"]
-            self.coords_test_imputed = tt_splits[1]["geometry"]
+        self.X = self.Xy.df[x_cols]
+        self.y = self.Xy.df[y_cols]
+        self.coords = self.Xy.df["geometry"]
 
     @property
     def model(self):
@@ -100,8 +75,8 @@ class TrainedSet:
     @property
     def cv(self):
         return block_cv_splits(
-            X=self.X_train.to_numpy(),
-            coords=self.coords_train,
+            X=self.X.to_numpy(),
+            coords=self.coords,
             grid_size=self.cv_grid_size,
             buffer_radius=0,
             n_groups=self.n_cv_groups,
@@ -110,8 +85,8 @@ class TrainedSet:
 
     def plot_observed_vs_predicted(self, log: bool = False):
         """Plot observed vs. predicted values."""
-        pred = self.model.predict(self.X_test)
-        obs = np.squeeze(self.y_test.to_numpy())
+        pred = self.model.predict(self.X)
+        obs = np.squeeze(self.y.to_numpy())
 
         # plot the observed vs. predicted values using seaborn
         sns.set_theme()
@@ -158,6 +133,9 @@ class TrainedSet:
         y_name = row["Response variable"]
         y_band = [b for b in gbif_bands if b in y_name][0]
 
+        Y = DataCollection.from_ids([id for id in rv_ids], y_band)
+        Y.df = Y.df[["geometry", y_name]]
+
         if "imputed" in row["NaN strategy"] or "imputed" in row["collection"]:
             imputed = True
         else:
@@ -172,21 +150,15 @@ class TrainedSet:
                 imp_stem = fpath.stem + "_imputed"
                 imp_fn = Path(fpath.parent, imp_stem + fn_ext)
                 X_imp = DataCollection.from_collection(imp_fn)
-
+                Xy_imputed = MLCollection(X_imp, Y)
+                Xy_imputed.drop_NAs(verbose=1)
+            else:
+                Xy_imputed = None
         else:
             X = DataCollection.from_ids([id for id in predictor_ids])
 
-        Y = DataCollection.from_ids([id for id in rv_ids], y_band)
-        Y.df = Y.df[["geometry", y_name]]
-
         Xy = MLCollection(X, Y)
         Xy.drop_NAs(verbose=1)
-
-        if not imputed:
-            Xy_imputed = MLCollection(X_imp, Y)
-            Xy_imputed.drop_NAs(verbose=1)
-        else:
-            Xy_imputed = None
 
         stats = Stats(
             cv_nrmse=row["CV nRMSE"],
@@ -215,7 +187,6 @@ class TrainedSet:
             n_tuning_iters=int(row["N tuning iters"]),
             stats=stats,
             model_fpath=row["Model file"],
-            train_test_split=0.2,  # TODO: add to results
             random_state=int(row["Random seed"]),
             n_cv_groups=int(row["N CV groups"]),
             cv_grid_size=row["CV grid size [m]"],
@@ -254,7 +225,21 @@ class Prediction:
             crs=self.new_data.crs,
             index=self.new_data.index,
         )
+
+        # Area of Applicability
         print("Calculating Area of Applicability...")
+        if self.trained_set.Xy_imputed is not None:
+            x_cols = self.trained_set.Xy_imputed.X.cols
+            train = self.trained_set.Xy_imputed.df[x_cols]
+        else:
+            train = self.trained_set.X
+
+        if self.new_data_imputed is not None:
+            print("Using imputed new data for AoA calculation")
+            new = self.new_data_imputed
+        else:
+            new = self.new_data
+
         df["DI"], df["AOA"] = self.aoa(threshold=0.95)
         df[f"{self.trained_set.y_name}_masked_aoa"] = df[self.trained_set.y_name].where(
             df["AOA"] == 1
@@ -287,19 +272,9 @@ class Prediction:
         """Area of Applicability"""
         folds = [fold[1] for fold in list(self.trained_set.cv)]
 
-        if self.trained_set.Xy_imputed is not None:
-            X_train = self.trained_set.X_train_imputed
-        else:
-            X_train = self.trained_set.X_train
-
-        if self.new_data_imputed is not None:
-            new_data = self.new_data_imputed
-        else:
-            new_data = self.new_data
-
         DIs, AoA = aoa(
-            new_df=new_data.copy(),
-            training_df=X_train.copy(),
+            new_df=new.copy(),
+            training_df=train.copy(),
             weights=self.trained_set.stats.predictor_importances,
             thres=threshold,
             fold_indices=folds,
