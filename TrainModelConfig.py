@@ -24,7 +24,7 @@ class TrainModelConfig:
 
         # WorldClim
         self.WC_dir = pathlib.Path("./data/worldclim/bio/").absolute()
-        self.WC_bio_ids = ["1", "4", "7", "12", "13", "14", "13-14", "15"]
+        self.WC_bio_ids = ["1", "4", "7", "12", "13-14", "15"]
         self.WC_name = CollectionName.WORLDCLIM
 
         # MODIS
@@ -37,8 +37,9 @@ class TrainModelConfig:
 
         # Spatial CV
         DEGREE = 111325  # Standard value for 1 degree in meters at the equator
-        if os.path.exists("./ranges.npy"):
-            self.AUTOCORRELATION_RANGE = np.median(np.load("ranges.npy")) / DEGREE
+        ranges_fn = "./ranges_y_30000.npy"
+        if os.path.exists(ranges_fn):
+            self.AUTOCORRELATION_RANGE = np.median(np.load(ranges_fn)) / DEGREE
         else:
             raise ValueError("Cannot locate autocorrelation ranges")
 
