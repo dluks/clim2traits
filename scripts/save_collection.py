@@ -206,8 +206,13 @@ if __name__ == "__main__":
 
     print("Building collection")
     if args.collection is not None:
-        df = gpd.read_feather(args.collection)
-        collection_name = Path(args.collection).stem
+        print("Loading existing collection")
+        collection_path = Path(args.collection)
+        if collection_path.suffix == ".parquet":
+            df = gpd.read_parquet(args.collection)
+        elif collection_path.suffix == ".feather":
+            df = gpd.read_feather(args.collection)
+        collection_name = collection_path.stem
     else:
         df, collection_name = build_collection(
             res_str=args.res_str, nan_strategy=args.nan_strategy, thresh=args.thresh

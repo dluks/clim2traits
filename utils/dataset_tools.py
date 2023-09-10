@@ -37,6 +37,7 @@ class FileExt(Enum):
     TIF = "tif"
     NETCDF4 = "nc"
     GRID = "grd"
+    PARQUET = "parq"
     ANY = "*"
 
 

@@ -698,7 +698,14 @@ class DataCollection:
 
     @classmethod
     def from_collection(cls, collection: Union[str, os.PathLike]) -> DataCollection:
-        df = gpd.read_feather(collection)
+        """Returns a DataCollection object from a collection file."""
+        fp = Path(collection)
+        if fp.suffix == ".feather":
+            df = gpd.read_feather(collection)
+        elif fp.suffix == ".parquet" or fp.suffix == ".parq":
+            df = gpd.read_parquet(collection)
+        else:
+            raise ValueError("Invalid file extension.")
         data_collection = cls.from_df(df)
         data_collection.collection_file = str(collection)
         return data_collection
