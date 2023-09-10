@@ -90,7 +90,7 @@ class TrainModelConfig:
             search_n_trials=200,
             optimizer="hyperopt",
             params=params,
-            max_iters=1,
+            # max_iters=40,
             n_jobs=-1,
             results_dir=self.RESULTS_DIR,
             results_csv=pathlib.Path(self.RESULTS_DIR, self.csv_fname),
@@ -100,7 +100,7 @@ class TrainModelConfig:
 
         if self.DEBUG:
             # Define test mode TrainingConfig
-            self.training_config.cv_n_groups = 2
+            self.training_config.cv_n_groups = 10
             self.training_config.search_n_trials = 2
             self.training_config.results_dir = self.RESULTS_DIR / "test"
             self.training_config.results_dir.mkdir(parents=True, exist_ok=True)
