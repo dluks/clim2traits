@@ -213,8 +213,15 @@ class Prediction:
     @cached_property
     def df(self) -> gpd.GeoDataFrame:
         # Make sure train and new columns match by mapping new columns to train columns
-        self.new_data = self.map_new_columns()
+        self.new_data = map_new_columns(
+            train_df=self.trained_set.Xy.X.df, new_df=self.new_data
+        )
+        if self.new_data_imputed is not None:
+            self.new_data_imputed = map_new_columns(
+                train_df=self.trained_set.Xy.X.df, new_df=self.new_data_imputed
+            )
 
+        # Generate predictions
         prediction = self.trained_set.model.predict(
             self.new_data[self.trained_set.Xy.X.cols].to_numpy()
         )
@@ -240,35 +247,19 @@ class Prediction:
         else:
             new = self.new_data
 
-        df["DI"], df["AOA"] = self.aoa(threshold=0.95)
+        df["DI"], df["AOA"] = self.get_aoa(train=train, new=new, threshold=0.95)
         df[f"{self.trained_set.y_name}_masked_aoa"] = df[self.trained_set.y_name].where(
             df["AOA"] == 1
         )
         df["CoV"] = self.cov()
         return df
 
-    def map_new_columns(self) -> gpd.GeoDataFrame:
-        # Load map keys from file (to match training columns with new data columns)
-        with open("data/collections/map_keys.json", "r") as f:
-            map_keys = json.load(f)
-
-        for _, value in map_keys.items():
-            train = value["train"]
-            new = value["new"]
-            # Get matching columns in training and new data
-            train_cols = [
-                col for col in self.trained_set.Xy.X.cols.values if train in col
-            ]
-            new_cols = [col for col in self.new_data.columns.values if new in col]
-
-            # Create mapping dictionary
-            mapping = dict(zip(new_cols, train_cols))
-            # Rename columns to match training data
-            self.new_data.rename(columns=mapping, inplace=True)
-
-        return self.new_data
-
-    def aoa(self, threshold: float = 0.95) -> Tuple[np.ndarray, np.ndarray]:
+    def get_aoa(
+        self,
+        train: pd.DataFrame,
+        new: pd.DataFrame,
+        threshold: float = 0.95,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Area of Applicability"""
         folds = [fold[1] for fold in list(self.trained_set.cv)]
 
@@ -293,6 +284,29 @@ class Prediction:
         all_preds = np.vstack(preds)
         cov = coefficient_of_variation(all_preds)
         return cov
+
+
+def map_new_columns(
+    train_df,
+    new_df,
+) -> gpd.GeoDataFrame:
+    # Load map keys from file (to match training columns with new data columns)
+    with open("data/collections/map_keys_new.json", "r") as f:
+        map_keys = json.load(f)
+
+    for _, value in map_keys.items():
+        train = value["train"]
+        new = value["new"]
+        # Get matching columns in training and new data
+        train_cols = [col for col in train_df.columns.values if train in col]
+        new_cols = [col for col in new_df.columns.values if new in col]
+
+        # Create mapping dictionary
+        mapping = dict(zip(new_cols, train_cols))
+        # Rename columns to match training data
+        new_df.rename(columns=mapping, inplace=True)
+
+    return new_df
 
 
 def coefficient_of_variation(data):
