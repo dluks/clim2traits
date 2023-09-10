@@ -50,7 +50,19 @@ def prep_data(
         file_ext=FileExt.GRID,
     )
 
-    all_rvs = [gbif, splot]
+    gbif_ln = Dataset(
+        res=res,
+        collection_name=CollectionName.GBIF_LN,
+        band=GBIFBand.MEAN,
+    )
+
+    splot_ln = Dataset(
+        res=res,
+        collection_name=CollectionName.SPLOT_LN,
+        band=GBIFBand.MEAN,
+    )
+
+    all_rvs = [gbif, splot, gbif_ln, splot_ln]
 
     if Y_names == ["all"]:
         rvs = all_rvs
