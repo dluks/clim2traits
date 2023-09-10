@@ -35,6 +35,6 @@ def gdf_from_list(
         elif file_ext == FileExt.NETCDF4:
             gdfs.append(ts_netcdf2gdfs(fn, ds_name))
 
-    merged_gdfs = merge_gdfs(gdfs)
+    merged_gdfs = merge_gdfs(gdfs, method="original")
 
     return merged_gdfs

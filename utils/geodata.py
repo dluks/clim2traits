@@ -2,9 +2,11 @@
 # Geodata utils
 ################################
 import os
+from functools import reduce
 from typing import Optional, Tuple, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rioxarray as riox
 import xarray as xr
@@ -73,23 +75,28 @@ def tif2gdf(
 
 
 def merge_gdfs(
-    gdfs: list[gpd.GeoDataFrame], expected_geom: str = "matching"
+    gdfs: list[gpd.GeoDataFrame], method: str = "original"
 ) -> gpd.GeoDataFrame:
     """Merge GeoDataFrames on matching data
 
     Args:
         gdfs (list[gpd.GeoDataFrame]): List of GeoDataFrames to merge
             on a common column
-        expected_geom (str, optional): Expected geometries across gdfs. Defaults to
-            "matching".
+        method (str, optional): Expected geometries across gdfs. Defaults to
+            "original".
 
     Returns:
         gpd.GeoDataFrame: Merged DataFrame
     """
-    if expected_geom == "matching":
+    crs = gdfs[0].crs
+
+    if method == "original":
+        merged_gdf = reduce(lambda left, right: pd.merge(left, right, how="left"), gdfs)
+    elif method == "matching":
         # Check that all geometries are the same
-        if not all(gdf.geometry == gdfs[0].geometry for gdf in gdfs):
-            raise ValueError("Geometries do not match across GeoDataFrames.")
+        for gdf in gdfs:
+            if not np.array_equal(gdf.geometry.values, gdfs[0].geometry.values):
+                raise ValueError("Geometries do not match across GeoDataFrames.")
 
         geometry = gdfs[0].geometry
         dfs = [gdf.drop(columns=["geometry"]) for gdf in gdfs]
@@ -97,13 +104,12 @@ def merge_gdfs(
         merged_gdf = gpd.GeoDataFrame(
             dfs[0].join(dfs[1:], how="left"), crs=crs, geometry=geometry
         )
-    elif expected_geom == "unique":
+    elif method == "unique":
         geometry = [g for gdf in gdfs for g in gdf.geometry]
         dfs = [gdf.drop(columns=["geometry"]) for gdf in gdfs]
         merged_gdf = gpd.GeoDataFrame(
             pd.concat(dfs, ignore_index=True).reset_index(), crs=crs, geometry=geometry
         )
-    crs = gdfs[0].crs
 
     return merged_gdf
 
