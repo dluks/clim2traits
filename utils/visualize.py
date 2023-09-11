@@ -7,6 +7,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import spacv
 import xarray as xr
 
@@ -179,3 +180,90 @@ def plot_distributions(df: Union[gpd.GeoDataFrame, pd.DataFrame], num_cols=4) ->
         ax.set_axis_off()
 
     plt.show()
+
+
+def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False):
+    """Plot observed vs. predicted values."""
+
+    # plot the observed vs. predicted values using seaborn
+    sns.set_theme()
+    sns.set_style("whitegrid")
+
+    p1 = min(min(predicted), min(observed))
+    p2 = max(max(predicted), max(observed))
+    if log:
+        ax.loglog([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
+    else:
+        ax.plot([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
+
+    ax.scatter(predicted, observed, alpha=0.15)
+    sns.kdeplot(x=predicted, y=observed, ax=ax, cmap="plasma", fill=True)
+
+    # Fit a regression line for observed vs. predicted values, plot the regression
+    # line so that it spans the entire plot, and print the correlation coefficient
+    m, b = np.polyfit(predicted, observed, 1)
+    reg_line = [m * p1 + b, m * p2 + b]
+    if log:
+        ax.loglog([p1, p2], reg_line, color="red", lw=0.5)
+    else:
+        ax.plot([p1, p2], reg_line, color="red", lw=0.5)
+    ax.text(
+        0.05,
+        0.95,
+        f"r = {np.corrcoef(predicted, observed)[0, 1]:.3f}",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+    )
+
+    # include legend items for the reg_line and the 1-to-1 line
+    ax.legend(
+        [
+            ax.get_lines()[0],
+            ax.get_lines()[1],
+        ],
+        ["1-to-1", "Regression"],
+        loc="lower right",
+    )
+
+    # set informative axes and title
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Observed")
+    ax.set_title(name)
+
+    return ax
+
+
+def plot_all_trait_obs_pred(trait_dirs, mapping=None):
+    # Plot observed vs. predicted for each GBIF trait as subplots of a single figure
+    # Number of subplots should equal number of GBIF traits, with 4 columns
+    num_traits = len(trait_dirs)
+    num_cols = 4
+    num_rows = int(np.ceil(num_traits / num_cols))
+
+    fig, axs = plt.subplots(
+        nrows=num_rows,
+        ncols=num_cols,
+        figsize=(20, 5 * num_rows),
+        tight_layout=True,
+        dpi=200,
+    )
+    axs = axs.flatten()
+
+    for i, trait_dir in enumerate(trait_dirs):
+        trait = trait_dir.stem
+
+        if mapping:
+            # Update trait name to match the mapping
+            trait_id = trait.split("_")[2].split("X")[1]
+            trait_set = trait.split("_")[0]
+            trait = f"{trait_set} {mapping[trait_id]}"
+
+        obs_vs_pred = pd.read_parquet(trait_dir / "cv_predictions.parq")
+        axs[i] = plot_observed_vs_predicted(
+            axs[i], obs_vs_pred["observed"], obs_vs_pred["predicted"], trait
+        )
+
+    # Clean up empty subplots
+    for i in range(num_traits, num_rows * num_cols):
+        fig.delaxes(axs[i])
