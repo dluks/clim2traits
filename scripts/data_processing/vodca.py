@@ -26,7 +26,7 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
 
     ds_05 = (
         ds.coarsen(x=2, y=2, boundary="exact")
-        .mean()
+        .mean()  # type: ignore (typing bug in xarray)
         .resample(time="1MS")
         .mean()
         .groupby("time.month")
