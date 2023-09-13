@@ -198,13 +198,12 @@ def export_collection(
     """
     num_images = int(collection.size().getInfo())
     image_list = collection.toList(num_images)
-    prefix = collection.first().bandNames().getInfo()[0]
 
     if not projection:
-        projection = collection.first().projection().getInfo()
+        projection = dict(collection.first().projection().getInfo())
 
     if not scale:
-        scale = collection.first().projection().nominalScale().int().getInfo()
+        scale = int(collection.first().projection().nominalScale().int().getInfo())
 
     for i in range(num_images if not test else 1):
         image = ee.Image(image_list.get(i))
