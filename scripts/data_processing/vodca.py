@@ -1,8 +1,13 @@
+import argparse
+import parser
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
 import xarray as xr
+
+from utils.dataset_tools import Unit
+from utils.datasets import CollectionName, Dataset, resample_dataset
 
 
 def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
@@ -65,7 +70,8 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
             blockxsize=256,
             blockysize=256,
             predictor=2,
-            num_threads=18,
+            num_threads=20,
+            compute=False,
         )
 
         month_025.rio.to_raster(
@@ -76,20 +82,41 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
             blockxsize=256,
             blockysize=256,
             predictor=2,
-            num_threads=18,
+            num_threads=20,
+            compute=False,
         )
 
         print(f"Exported {out_name}")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--standardize", action="store_true")
+    parser.add_argument("--resample_05", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+
+    args = parser.parse_args()
+
     out_dir = Path("./data/vodca")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    bands = ["C-Band", "Ku-band", "X-band"]
-    band_paths = [
-        list(Path(f"./data/vodca/source/{band}").glob("20*/*.nc")) for band in bands
-    ]
+    if args.standardize:
+        bands = ["Ku-band", "X-band"]
+        band_paths = [
+            list(Path(f"./data/vodca/source/{band}").glob("*/*.nc")) for band in bands
+        ]
 
-    with Pool(3) as p:
-        p.starmap(daily_to_multiyear_monthly, zip(band_paths, [out_dir] * 3))
+        cpus = len(bands)
+        with Pool(cpus) as p:
+            p.starmap(daily_to_multiyear_monthly, zip(band_paths, [out_dir] * cpus))
+
+    if args.resample_05:
+        vodca = Dataset(
+            res=0.25,
+            unit=Unit.DEGREE,
+            collection_name=CollectionName.VODCA,
+        )
+
+        resample_dataset(
+            vodca, 0.5, unit=Unit.DEGREE, resample_alg=5, dry_run=args.dry_run
+        )
