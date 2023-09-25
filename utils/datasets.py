@@ -18,7 +18,7 @@ import xarray as xr
 
 from utils.data_retrieval import gdf_from_list
 from utils.dataset_tools import FileExt, Unit
-from utils.geodata import drop_XY_NAs, get_epsg, mask_oceans, merge_gdfs
+from utils.geodata import drop_XY_NAs, get_epsg, merge_gdfs
 from utils.training import TrainingConfig, TrainingRun
 from utils.visualize import plot_distributions, plot_raster_maps
 
@@ -114,7 +114,7 @@ class CollectionName(Enum):
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
         "MOD09GA.061",
         "modis",
-        Path("./data/modis"),
+        Path("./data/modis/2000-2020"),
         "sur_refl",
     )
     SOIL = (
@@ -122,7 +122,7 @@ class CollectionName(Enum):
         "ISRIC_soil",
         "soil",
         Path("./data/soil"),
-        ["0-5cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm"],
+        ["0-5cm", "0-30cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm"],
     )
     WORLDCLIM = (
         "WorldClim Bioclimatic Variables",
@@ -434,9 +434,6 @@ class Dataset:
         print("Dropping unnecessary columns...")
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
 
-        print("Masking oceans...")
-        df = mask_oceans(df)  # Mask non-land points
-
         if self.filter_outliers:
             df = self._filter_outliers(df, self.filter_outliers)
         return df
@@ -659,7 +656,7 @@ def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def write_dataset(ds: xr.Dataset, fpath: Union[str, os.PathLike], format: str) -> Path:
+def write_dataset(ds: xr.Dataset, fpath: Union[str, os.PathLike], format: str) -> None:
     if format == "GTiff":
         ds.rio.to_raster(
             fpath,
