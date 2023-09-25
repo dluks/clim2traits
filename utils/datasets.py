@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import glob
 import os
 import warnings
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import rioxarray as riox  # type: ignore
 import xarray as xr
@@ -531,6 +533,8 @@ def resample_dataset(
     unit: Unit,
     format: str = "GTiff",
     resample_alg: int = 0,
+    match_raster: bool = True,
+    dry_run: bool = False,
 ) -> None:
     """Resamples a dataset to a new resolution and unit.
 
@@ -543,6 +547,7 @@ def resample_dataset(
         resample_alg (int, optional): Resampling algorithm. See
             https://rasterio.readthedocs.io/en/stable/api/rasterio.enums.html#rasterio.enums.Resampling
             for options. Defaults to 0.
+        dry_run (bool, optional): If True, then the function will not write any files.
     """
     # Check if the dataset resolution is the same as the new resolution
     if dataset.res == resolution and dataset.unit == unit:
@@ -552,18 +557,12 @@ def resample_dataset(
     new_dir = Path(dataset.parent_dir, f"{resolution}_{unit.abbr}")
     new_dir.mkdir(parents=True, exist_ok=True)
 
-    res = resolution
     if unit == Unit.SECOND:
         res = resolution / 3600
     elif unit == Unit.KILOMETER:
         res = resolution * 0.00898315284120171538
-
-    if format == "GTiff":
-        ext = ".tif"
-    elif format == "netcdf":
-        ext = ".nc"
-    elif format == "zarr":
-        ext = ".zarr"
+    else:
+        res = resolution
 
     for fpath in dataset.fpaths:
         fpath = Path(fpath)
@@ -571,30 +570,76 @@ def resample_dataset(
 
         # Create the new filename
         new_fpath = new_dir / new_fname
-        new_fpath = new_fpath.with_suffix(ext)
+        new_fpath = new_fpath.with_suffix(".tif")
 
-        print(str(new_fpath))
+        if dry_run:
+            print(f"Would write to {new_fpath}")
+            continue
 
-        # Open the dataset
-        if fpath.suffix == ".tif":
-            ds = riox.open_rasterio(fpath, masked=True, lock=False)
-        else:
-            ds = xr.open_dataset(fpath)
-
+        ds = riox.open_rasterio(fpath, masked=True, chunks={"x": 360, "y": 360})
         # set CRS to EPSG: 4326 if it doesn't exist
         if not ds.rio.crs:
             ds.rio.write_crs("EPSG:4326", inplace=True)
 
-        ds = ds.rio.reproject(
-            dst_crs="EPSG:4326", resolution=res, resampling=resample_alg, num_threads=18
-        )
-
         ds = clip_and_pad_dataset(ds)
 
-        write_dataset(ds, new_fpath, format)
+        if match_raster:
+            # Make an empty dataset with the new extent and resolution
+            # Define the global extent
+            xmin, ymin, xmax, ymax = (-180.0, -90.0, 180.0, 90.0)
+
+            # Calculate the number of rows and columns based on the desired resolution
+            nrows = int((ymax - ymin) / res)
+            ncols = int((xmax - xmin) / res)
+            shift = res / 2
+
+            # Generate lat (y) and lon (x) grid and round values to two decimal places
+            y = np.linspace(ymax - shift, ymin + shift, nrows)
+            x = np.linspace(xmin + shift, xmax - shift, ncols)
+
+            # Create the empty DataArray with the desired dimensions and fill with ones
+            target_grid = xr.DataArray(
+                data=np.ones((nrows, ncols)),
+                dims=("y", "x"),
+                coords={
+                    "y": y,
+                    "x": x,
+                },
+            )
+            target_grid.rio.write_crs("EPSG:4326", inplace=True)
+            # target = riox.open_rasterio(
+            #     match_raster, masked=True, chunks={"x": 360, "y": 360}
+            # )
+            ds = ds.rio.reproject_match(target_grid, resampling=resample_alg)
+        else:
+            ds = ds.rio.reproject(
+                dst_crs="EPSG:4326",
+                resolution=res,
+                resampling=resample_alg,
+                num_threads=20,
+            )
+
+        ds.rio.to_raster(
+            new_fpath,
+            compress="zstd",
+            tiled=True,
+            blockxsize=256,
+            blockysize=256,
+            predictor=2,
+            num_threads=20,
+            windowed=True,
+            compute=False,
+        )
+        print(f"Wrote {str(new_fpath)}")
+
+        # Check to confirm file was written
+        if not new_fpath.exists():
+            raise FileNotFoundError(f"Error in writing file: {new_fpath}")
 
         ds.close()
         del ds
+        # Clean up memory with garbage collection
+        gc.collect()
 
 
 def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
@@ -605,9 +650,9 @@ def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
     ds = ds.rio.clip(
         geometries=land_mask.geometry.values,
         crs=land_mask.crs,
+        all_touched=False,
         drop=False,
         invert=False,
-        from_disk=False,
     )
 
     ds = ds.rio.pad_box(minx=180, miny=-90, maxx=180, maxy=90)
