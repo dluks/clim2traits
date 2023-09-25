@@ -213,13 +213,13 @@ class Prediction:
     @cached_property
     def df(self) -> gpd.GeoDataFrame:
         # Make sure train and new columns match by mapping new columns to train columns
-        self.new_data = map_new_columns(
-            train_df=self.trained_set.Xy.X.df, new_df=self.new_data
-        )
-        if self.new_data_imputed is not None:
-            self.new_data_imputed = map_new_columns(
-                train_df=self.trained_set.Xy.X.df, new_df=self.new_data_imputed
-            )
+        # self.new_data = map_new_columns(
+        #     train_df=self.trained_set.Xy.X.df, new_df=self.new_data
+        # )
+        # if self.new_data_imputed is not None:
+        #     self.new_data_imputed = map_new_columns(
+        #         train_df=self.trained_set.Xy.X.df, new_df=self.new_data_imputed
+        #     )
 
         # Generate predictions
         prediction = self.trained_set.model.predict(
