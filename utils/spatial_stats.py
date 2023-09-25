@@ -239,8 +239,6 @@ def impute_missing(data: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
 
     return imputed
 
-    return distances
-
 
 @timer
 def nearest_dist_chunked(training_data, new_data):
