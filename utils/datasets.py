@@ -18,6 +18,7 @@ from utils.data_retrieval import gdf_from_list
 from utils.dataset_tools import FileExt, Unit
 from utils.geodata import drop_XY_NAs, get_epsg, mask_oceans, merge_gdfs
 from utils.training import TrainingConfig, TrainingRun
+from utils.visualize import plot_distributions, plot_raster_maps
 
 
 class CollectionName(Enum):
@@ -510,6 +511,18 @@ class Dataset:
         return cls(
             _fpaths=fpath,
         )
+
+    def plot_rasters(self) -> None:
+        """Plots the rasters in the dataset."""
+        # Plot each raster as a subplot in a single figure with 5 columns
+        # With platecarree projection, the x-axis is longitude and the y-axis is latitude
+        # Include coaslines
+        # Clean up empty axes at the end
+        plot_raster_maps(self.fpaths, 3)
+
+    def plot_distributions(self, pdf: bool = False) -> None:
+        """Plots the distributions of the dataset."""
+        plot_distributions(self.df[self.cols], pdf)
 
 
 def resample_dataset(
