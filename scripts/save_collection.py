@@ -9,7 +9,6 @@ import dask.dataframe as dd
 import dask_geopandas as dgpd
 import geopandas as gpd
 import pandas as pd
-from joblib import load
 from sklearn.experimental import enable_iterative_imputer  # type: ignore
 
 from utils.datasets import DataCollection
@@ -62,7 +61,6 @@ def save_collection(
     df: Union[gpd.GeoDataFrame, pd.DataFrame],
     collection_name: str,
     impute: bool = False,
-    n_iter: int = 10,
 ) -> None:
     if impute:
         print("Imputing missing values")
@@ -70,29 +68,31 @@ def save_collection(
         data_cols = df.columns.difference(["geometry"])
 
         # extract x and y from geometry and append as columns
-        df["x"] = df.geometry.x
-        df["y"] = df.geometry.y
+        # df["x"] = df.geometry.x
+        # df["y"] = df.geometry.y
+        df = df.reset_index(drop=True)
+        geom = df.geometry
 
-        df_imp = impute_missing(df.drop(columns=["geometry"]), verbose=True)
+        df_out = impute_missing(df[data_cols], verbose=True)
 
-        df_imp = gpd.GeoDataFrame(
-            df_imp.drop(columns=["x", "y"]),
-            columns=data_cols,
-            geometry=df.geometry,
+        df_out = gpd.GeoDataFrame(
+            df_out.reset_index(drop=True),
+            geometry=geom,
             index=df.index,
         )
         out_stem = f"{collection_name}_imputed"
     else:
         out_stem = collection_name
+        df_out = df
 
     if isinstance(
-        df_imp, (gpd.GeoDataFrame, dgpd.GeoDataFrame, pd.DataFrame, dd.DataFrame)
+        df_out, (gpd.GeoDataFrame, dgpd.GeoDataFrame, pd.DataFrame, dd.DataFrame)
     ):
         print("Saving collection...")
         out_dir = Path("data/collections")
         out_dir.mkdir(exist_ok=True, parents=True)
         out_fn = out_dir / f"{out_stem}.parquet"
-        df_imp.to_parquet(out_fn, compression="zstd", compression_level=2)
+        df_out.to_parquet(out_fn, compression="zstd", compression_level=2)
     else:
         raise TypeError("df must be a GeoDataFrame or DataFrame")
 
@@ -121,26 +121,10 @@ if __name__ == "__main__":
         "--impute-missing", action="store_true", help="Whether to impute missing values"
     )
     parser.add_argument(
-        "--n-iter", type=int, default=20, help="Number of iterations for imputation"
-    )
-    parser.add_argument(
-        "--fitted-imputer", type=str, default=None, help="Path to fitted imputer"
-    )
-    parser.add_argument(
-        "--resume-fit", action="store_true", help="Whether to resume fitting imputer"
-    )
-    parser.add_argument(
-        "--save-imputer", action="store_true", help="Whether to save fitted imputer"
-    )
-    parser.add_argument(
         "--collection", type=str, default=None, help="Path to existing collection"
     )
 
     args = parser.parse_args()
-
-    if args.fitted_imputer is not None:
-        print(f"Loading fitted imputer from {args.fitted_imputer}")
-        args.fitted_imputer = load(args.fitted_imputer)
 
     print("Building collection")
     if args.collection is not None:
@@ -160,6 +144,5 @@ if __name__ == "__main__":
         df,
         collection_name,
         impute=args.impute_missing,
-        n_iter=args.n_iter,
     )
     print("Saving complete")
