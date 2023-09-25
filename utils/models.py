@@ -282,8 +282,9 @@ class Prediction:
             )
 
         all_preds = np.vstack(preds)
-        cov = coefficient_of_variation(all_preds)
-        return cov
+        # shift all values to be positive and avoid division by 0
+        all_preds += np.abs(np.min(all_preds)) + 1e-6
+        return np.std(all_preds, axis=0) / np.mean(all_preds, axis=0)
 
 
 def map_new_columns(
