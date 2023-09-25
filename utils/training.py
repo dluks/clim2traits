@@ -44,6 +44,7 @@ class TrainingResults:
     cv_r2_std: Numeric = 0.0
     test_r2: Numeric = 0.0
     predictor_importance: list = field(default_factory=list)
+    cv_predictor_importance: dict = field(default_factory=dict)
     model_fn: Path = field(default_factory=Path)
     search_n_trials: int = 0
     optimizer: str = ""
@@ -77,6 +78,7 @@ class TrainingResults:
                 "CV r-squared STD": self.cv_r2_std,
                 "Test r-squared": self.test_r2,
                 "Predictor importance": [self.predictor_importance],
+                "CV predictor importance": [self.cv_predictor_importance],
                 "Model file": self.model_fn,
                 "N CV groups": self.cv_n_groups,
                 "CV grid size [m]": self.grid_size,
@@ -327,9 +329,27 @@ class TrainingRun:
             out_dir=self.results_dir,
         )
 
+        feature_importances = []
         for i, est in enumerate(estimators):
             est_fn = cv_est_out_dir / f"{self.y_col}_{self.id}_fold-{i}"
             est.save_model(est_fn)
+            feature_importances.append(
+                np.column_stack((self.predictor_names, est.feature_importances_))
+            )
+
+        # create an empty dictionary to store the feature importances
+        feature_importances_dict = {}
+
+        # compile the feature importances for each predictor into a list
+        for predictor in self.predictor_names:
+            feature_importances_dict[predictor] = []
+            for ft_set in feature_importances:
+                feature_importances_dict[predictor].append(
+                    ft_set[ft_set[:, 0] == predictor, 1][0]
+                )
+
+        # Save feature importances to results object
+        self.results.cv_predictor_importance = feature_importances_dict
 
         rmses, r2s = cv_results["test_rmse"], cv_results["test_r2"]
         cv_nrmse, cv_nrmse_std = normalize_to_range(-rmses, self.y_range)
