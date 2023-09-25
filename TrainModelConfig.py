@@ -78,7 +78,7 @@ class TrainModelConfig:
         # NaN strategy should be one of the following to maintain consistency in the
         # results table:
         # ["all", "all-imputed", "any", "threshold-#", "threshold-#-imputed"]
-        nan_strategy = "all"
+        nan_strategy = "threshold-0.5"
 
         # Define TrainingConfig
         self.training_config = TrainingConfig(
