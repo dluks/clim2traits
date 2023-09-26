@@ -15,16 +15,19 @@ from rasterio.enums import Resampling
 NPARTITIONS = os.cpu_count()
 
 
-def ds2gdf(ds: xr.DataArray) -> gpd.GeoDataFrame:
+def ds2gdf(ds: xr.DataArray, name: Optional[str] = None) -> gpd.GeoDataFrame:
     """Converts an xarray dataset to a geopandas dataframe
 
     Args:
         ds (xarray.DataArray): Dataset to convert
+        name (Optional[str], optional): Name of the dataset. Defaults to None.
 
     Returns:
         geopandas.GeoDataFrame: GeoPandas dataframe
     """
-    df = ds.to_dataframe().reset_index()
+    ds_name = name if name is not None else ds.name
+
+    df = ds.to_dataframe(name=ds_name).reset_index()
     geometry = gpd.points_from_xy(df.x, df.y)
     df = df.drop(columns=["band", "spatial_ref", "x", "y"])
     gdf = gpd.GeoDataFrame(data=df, crs=ds.rio.crs, geometry=geometry)
@@ -355,3 +358,37 @@ def pad_raster(ds: xr.Dataset) -> xr.Dataset:
     """Pads a raster dataset to the full extent of the globe."""
     ds = ds.rio.pad_box(minx=180, miny=-90, maxx=180, maxy=90)
     return ds
+
+
+def compare_grids(
+    grid1: xr.DataArray, grid2: xr.DataArray, grid1_name: str, grid2_name: str
+) -> np.float64:
+    """Calculate the correlation coefficient between two raster grids."""
+    # Ensure that the grids share the same CRS
+    grid1 = grid1.rio.reproject("EPSG:4326")
+    grid2 = grid2.rio.reproject("EPSG:4326")
+
+    # Convert to GDFs
+    grid1 = ds2gdf(grid1, name=grid1_name).dropna(subset=[grid1_name])
+    grid2 = ds2gdf(grid2, name=grid2_name).dropna(subset=[grid2_name])
+
+    # Merge the two geodataframes on the geometry column such that only matching geometries are retained
+    merged = gpd.sjoin(grid1, grid2, how="inner", op="intersects")
+    corr = merged[grid1_name].corr(merged[grid2_name])
+    return corr
+
+
+def compare_gdf_to_grid(
+    gdf: gpd.GeoDataFrame, grid: xr.DataArray, gdf_name: str, grid_name: str
+) -> np.float64:
+    """Calculate the correlation coefficient between a GeoDataFrame and a raster grid."""
+    # Ensure that the grids share the same CRS
+    grid = grid.rio.reproject("EPSG:4326")
+
+    # Convert to GDFs
+    grid = ds2gdf(grid, name=grid_name).dropna(subset=[grid_name])
+
+    # Merge the two geodataframes on the geometry column such that only matching geometries are retained
+    merged = gpd.sjoin(gdf, grid, how="inner", op="intersects")
+    corr = merged[gdf_name].corr(merged[grid_name])
+    return corr
