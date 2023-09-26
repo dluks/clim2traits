@@ -18,7 +18,7 @@ import xarray as xr
 
 from utils.data_retrieval import gdf_from_list
 from utils.dataset_tools import FileExt, Unit
-from utils.geodata import drop_XY_NAs, get_epsg, merge_gdfs
+from utils.geodata import clip_to_land, drop_XY_NAs, get_epsg, merge_gdfs, pad_raster
 from utils.training import TrainingConfig, TrainingRun
 from utils.visualize import plot_distributions, plot_raster_maps
 
@@ -640,19 +640,10 @@ def resample_dataset(
 
 
 def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
-    land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
-    if not ds.rio.crs:
-        ds.rio.write_crs("EPSG:4326", inplace=True)
+    """Clips and pads a dataset to the global extent."""
+    ds = clip_to_land(ds)
+    ds = pad_raster(ds)
 
-    ds = ds.rio.clip(
-        geometries=land_mask.geometry.values,
-        crs=land_mask.crs,
-        all_touched=False,
-        drop=False,
-        invert=False,
-    )
-
-    ds = ds.rio.pad_box(minx=180, miny=-90, maxx=180, maxy=90)
     return ds
 
 

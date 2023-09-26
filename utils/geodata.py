@@ -332,3 +332,26 @@ def mask_oceans(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     # if isinstance(gdf, dgpd.GeoDataFrame):
     #     gdf = gdf.compute()
     return gdf.clip(land_mask)
+
+
+def clip_to_land(ds: xr.Dataset) -> xr.Dataset:
+    """Clips a raster dataset to land only."""
+    land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
+    if not ds.rio.crs:
+        ds.rio.write_crs("EPSG:4326", inplace=True)
+
+    ds = ds.rio.clip(
+        geometries=land_mask.geometry.values,
+        crs=land_mask.crs,
+        all_touched=False,
+        drop=False,
+        invert=False,
+    )
+
+    return ds
+
+
+def pad_raster(ds: xr.Dataset) -> xr.Dataset:
+    """Pads a raster dataset to the full extent of the globe."""
+    ds = ds.rio.pad_box(minx=180, miny=-90, maxx=180, maxy=90)
+    return ds
