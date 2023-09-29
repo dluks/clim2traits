@@ -1,6 +1,7 @@
+import json
 import math
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -11,6 +12,8 @@ import pandas as pd
 import seaborn as sns
 import spacv
 import xarray as xr
+from matplotlib.axes import Axes
+from matplotlib.pyplot import colorbar
 
 
 def plot_raster_maps(fns: list, ncols: int):
@@ -62,29 +65,102 @@ def plot_raster_maps(fns: list, ncols: int):
             fig.delaxes(axes[-i - 1])
 
 
-def plot_rasterio(da: xr.DataArray, proj: ccrs.Projection = ccrs.PlateCarree):
+def plot_pred_cov(preds: list[xr.Dataset]) -> None:
+    """Plot trait predictions and their corresonding Coefficient of Variation (CoV)"""
+    nrows = len(preds)
+    ncols = 2
+
+    _, geo_axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        subplot_kw={"projection": ccrs.PlateCarree()},
+        figsize=(12 * ncols, 5 * nrows),
+        dpi=200,
+        tight_layout=True,
+    )
+
+    with open("./trait_id_to_trait_name.json", "r") as f:
+        mapping = json.load(f)
+
+    for i, ds in enumerate(preds):
+        trait = list(ds.data_vars)[0]
+        trait_id = trait.split("_")[2]
+        trait_num = trait_id.split("X")[-1]
+        trait_name = f"GBIF TRY-GF: {mapping[trait_num]}"
+
+        # Limit vmax of CoV geoaxes if CoV range is > 1
+        cov_max = np.nanmax(ds["CoV"].values)
+
+        vmax = 0.5 if cov_max >= 1 else None
+        # print(trait_name, cov_max, vmax)
+
+        geo_axes[i][0] = plot_dataset(ds, trait, geo_axes[i][0], trait_name)
+        geo_axes[i][1] = plot_dataset(
+            ds, "CoV", geo_axes[i][1], "Coefficient of Variation", vmax=vmax
+        )
+
+    plt.show()
+
+
+def plot_dataset(
+    da: Union[xr.Dataset, xr.DataArray],
+    data: str,
+    ax: Optional[Axes] = None,
+    title: Optional[str] = None,
+    proj: ccrs.Projection = ccrs.PlateCarree,
+    vmax: Optional[float] = None,
+) -> Optional[Axes]:
     """
     Quick and dirty plot of a global rasterio data array
 
     Args:
-        da (xr.DataArray): Rasterio data array to be plotted
+        da xr.Dataset | xr.DataArray: xarray dataset or data array to be plotted
+        data (str): Name of the data array to be plotted
+        ax (Axes, optional): Matplotlib axes to plot on. Defaults to None.
+        title (str, optional): Title of the plot. Defaults to None.
         proj (ccrs.Projection, optional): Desired projection. Defaults to
         ccrs.PlateCarree.
+        **kwargs: Additional keyword arguments to be passed to the axis
     """
-    fig, ax = plt.subplots(
-        figsize=(20, 15),
-        subplot_kw={"projection": proj()},
-        tight_layout=True,
-    )
+    cmap = sns.color_palette("rocket", as_cmap=True)
+
+    if ax is None:
+        _, ax = plt.subplots(
+            figsize=(20, 15),
+            subplot_kw={"projection": proj()},
+            tight_layout=True,
+        )
+
+    if isinstance(da, xr.Dataset):
+        da = da[data]
 
     lon = da.coords["x"].values
     lat = da.coords["y"].values
-    title = str(da.name)
+    title = title if title is not None else str(da.name)
     ax.set_global()  # type: ignore
     ax.coastlines(resolution="110m", linewidth=0.5)  # type: ignore
-    im = ax.contourf(lon, lat, np.squeeze(da), 50, transform=ccrs.PlateCarree())
-    fig.colorbar(im, ax=ax, orientation="vertical", shrink=0.5)
+
+    # vmax = kwargs["vmax"] if kwargs is not None else None
+
+    im = ax.contourf(
+        lon,
+        lat,
+        np.squeeze(da),
+        50,
+        transform=ccrs.PlateCarree(),
+        cmap=cmap,
+        vmax=vmax,
+    )
+
+    # Set axis background color to very light grey
+    ax.set_facecolor("#f0f0f0")
+
+    colorbar(im, ax=ax, orientation="vertical", shrink=0.5)
     ax.set_title(title)
+
+    ax.set_ylim([-60, 90])
+
+    return ax
 
 
 def plot_splits(skcv: spacv.SKCV, XYs: gpd.GeoSeries) -> None:
