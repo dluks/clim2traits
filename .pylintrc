@@ -1,3 +1,7 @@
-disable=missing-module-docstring
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    invalid-name
 
-good-names=df,ax,fn
+[BASIC]
+good-names=df,ax,fn,ds
