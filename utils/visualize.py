@@ -1,5 +1,6 @@
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
@@ -13,6 +14,7 @@ import seaborn as sns
 import spacv
 import xarray as xr
 from matplotlib.axes import Axes
+from matplotlib.colors import ListedColormap
 from matplotlib.pyplot import colorbar
 
 
@@ -43,15 +45,19 @@ def plot_raster_maps(fns: list, ncols: int):
     for ax, fn in zip(axes, fns):
         with xr.open_dataset(fn, engine="rasterio") as ds:
             darr = da.from_array(ds.band_data.squeeze(), chunks="auto")
-            lon = ds.coords["x"].values
-            lat = ds.coords["y"].values
+            extent = [
+                ds.coords["x"].values.min(),
+                ds.coords["x"].values.max(),
+                ds.coords["y"].values.min(),
+                ds.coords["y"].values.max(),
+            ]
             title = truncate_string(Path(fn).stem)
 
             ax.set_global()
             ax.coastlines(resolution="110m", linewidth=0.5)
             im = ax.imshow(
                 darr,
-                extent=[lon.min(), lon.max(), lat.min(), lat.max()],
+                extent=extent,
                 transform=ccrs.PlateCarree(),
                 cmap="viridis",
             )
@@ -79,7 +85,7 @@ def plot_pred_cov(preds: list[xr.Dataset]) -> None:
         tight_layout=True,
     )
 
-    with open("./trait_id_to_trait_name.json", "r") as f:
+    with open("./trait_id_to_trait_name.json", "r", encoding="utf-8") as f:
         mapping = json.load(f)
 
     for i, ds in enumerate(preds):
@@ -92,23 +98,45 @@ def plot_pred_cov(preds: list[xr.Dataset]) -> None:
         cov_max = np.nanmax(ds["CoV"].values)
 
         vmax = 0.5 if cov_max >= 1 else None
-        # print(trait_name, cov_max, vmax)
 
-        geo_axes[i][0] = plot_dataset(ds, trait, geo_axes[i][0], trait_name)
+        geo_axes[i][0] = plot_dataset(
+            ds,
+            trait,
+            AxProps(
+                ax=geo_axes[i][0],
+                title=trait_name,
+                cmap=sns.cubehelix_palette(
+                    start=2, rot=0, dark=0, light=0.95, as_cmap=True
+                ),  # type: ignore
+            ),
+        )
         geo_axes[i][1] = plot_dataset(
-            ds, "CoV", geo_axes[i][1], "Coefficient of Variation", vmax=vmax
+            ds,
+            "CoV",
+            AxProps(
+                ax=geo_axes[i][1],
+                title=f"{trait_name} CoV",
+                vmax=vmax,
+                cmap=sns.color_palette("Blues", as_cmap=True),  # type: ignore
+            ),
         )
 
     plt.show()
 
 
+@dataclass
+class AxProps:
+    """Dataclass for storing information about a matplotlib axis"""
+
+    ax: Optional[Axes] = None
+    title: Optional[str] = None
+    proj: ccrs.Projection = ccrs.PlateCarree
+    cmap: ListedColormap = sns.color_palette("rocket", as_cmap=True)  # type: ignore
+    vmax: Optional[float] = None
+
+
 def plot_dataset(
-    da: Union[xr.Dataset, xr.DataArray],
-    data: str,
-    ax: Optional[Axes] = None,
-    title: Optional[str] = None,
-    proj: ccrs.Projection = ccrs.PlateCarree,
-    vmax: Optional[float] = None,
+    data: Union[xr.Dataset, xr.DataArray], data_name: str, ax_props: AxProps
 ) -> Optional[Axes]:
     """
     Quick and dirty plot of a global rasterio data array
@@ -116,49 +144,43 @@ def plot_dataset(
     Args:
         da xr.Dataset | xr.DataArray: xarray dataset or data array to be plotted
         data (str): Name of the data array to be plotted
-        ax (Axes, optional): Matplotlib axes to plot on. Defaults to None.
-        title (str, optional): Title of the plot. Defaults to None.
-        proj (ccrs.Projection, optional): Desired projection. Defaults to
-        ccrs.PlateCarree.
+        ax_props (AxProps): Information about the axis to be plotted on
         **kwargs: Additional keyword arguments to be passed to the axis
     """
-    cmap = sns.color_palette("rocket", as_cmap=True)
 
-    if ax is None:
+    if ax_props.ax is None:
         _, ax = plt.subplots(
             figsize=(20, 15),
-            subplot_kw={"projection": proj()},
+            subplot_kw={"projection": ax_props.proj()},
             tight_layout=True,
         )
 
-    if isinstance(da, xr.Dataset):
-        da = da[data]
+    if isinstance(data, xr.Dataset):
+        data = data[data_name]
 
-    lon = da.coords["x"].values
-    lat = da.coords["y"].values
-    title = title if title is not None else str(da.name)
+    lon = data.coords["x"].values
+    lat = data.coords["y"].values
+    title = title if title is not None else str(data.name)
     ax.set_global()  # type: ignore
     ax.coastlines(resolution="110m", linewidth=0.5)  # type: ignore
-
-    # vmax = kwargs["vmax"] if kwargs is not None else None
 
     im = ax.contourf(
         lon,
         lat,
-        np.squeeze(da),
+        np.squeeze(data),
         50,
         transform=ccrs.PlateCarree(),
-        cmap=cmap,
-        vmax=vmax,
+        cmap=ax_props.cmap,
+        vmax=ax_props.vmax,
     )
 
     # Set axis background color to very light grey
     ax.set_facecolor("#f0f0f0")
 
     colorbar(im, ax=ax, orientation="vertical", shrink=0.5)
-    ax.set_title(title)
+    ax.set_title(title, fontsize=25)
 
-    ax.set_ylim([-60, 90])
+    ax.set_ylim(-60.0, 90.0)
 
     return ax
 
@@ -184,6 +206,7 @@ def plot_splits(skcv: spacv.SKCV, XYs: gpd.GeoSeries) -> None:
 def plot_distributions(
     df: Union[gpd.GeoDataFrame, pd.DataFrame], pdf: bool = False, num_cols=4
 ) -> None:
+    """Plot the distributions of the given dataframe's columns"""
     num_plots = len(df.columns)
     num_rows = int(np.ceil(num_plots / num_cols))
     figsize = (5 * num_cols, 3 * num_rows)
@@ -203,7 +226,7 @@ def plot_distributions(
             ax.set_xlabel("Value")
         else:
             # Plot histogram
-            sns.histplot(df[col], ax=ax, bins=50)
+            sns.histplot(df[col], ax=ax, bins=50)  # type: ignore
         title = truncate_string(col)
         ax.set_title(title)
 
@@ -227,17 +250,16 @@ def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False)
 
     # plot the observed vs. predicted values using seaborn
     sns.set_theme()
-    sns.set_style("whitegrid")
 
-    p1 = min(min(predicted), min(observed))
-    p2 = max(max(predicted), max(observed))
+    p1 = min(predicted, observed)
+    p2 = max(predicted, observed)
     if log:
         ax.loglog([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
     else:
         ax.plot([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
 
-    ax.scatter(predicted, observed, alpha=0.15)
-    sns.kdeplot(x=predicted, y=observed, ax=ax, cmap="plasma", fill=True)
+    cmap = sns.cubehelix_palette(start=0.5, rot=-0.75, reverse=True, as_cmap=True)  # type: ignore
+    sns.kdeplot(x=predicted, y=observed, ax=ax, cmap=cmap, fill=True, thresh=0.0075)
 
     # Fit a regression line for observed vs. predicted values, plot the regression
     # line so that it spans the entire plot, and print the correlation coefficient
@@ -247,13 +269,27 @@ def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False)
         ax.loglog([p1, p2], reg_line, color="red", lw=0.5)
     else:
         ax.plot([p1, p2], reg_line, color="red", lw=0.5)
+
+    buffer_color = "#e9e9f1"
+
     ax.text(
         0.05,
         0.95,
-        f"r = {np.corrcoef(predicted, observed)[0, 1]:.3f}",
+        f"$r$ = {np.corrcoef(predicted, observed)[0, 1]:.3f}",
         transform=ax.transAxes,
         ha="left",
         va="top",
+        bbox={"facecolor": buffer_color, "edgecolor": buffer_color, "pad": 0.5},
+    )
+
+    ax.text(
+        0.05,
+        0.90,
+        f"n = {len(predicted):,}",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        bbox={"facecolor": buffer_color, "edgecolor": buffer_color, "pad": 0.5},
     )
 
     # include legend items for the reg_line and the 1-to-1 line
@@ -264,6 +300,7 @@ def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False)
         ],
         ["1-to-1", "Regression"],
         loc="lower right",
+        frameon=False,
     )
 
     # set informative axes and title
@@ -275,10 +312,9 @@ def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False)
 
 
 def plot_all_trait_obs_pred(trait_dirs, mapping=None):
-    # Plot observed vs. predicted for each GBIF trait as subplots of a single figure
-    # Number of subplots should equal number of GBIF traits, with 4 columns
+    """Plot observed vs. predicted values for all traits in the given list of trait directories."""
     num_traits = len(trait_dirs)
-    num_cols = 4
+    num_cols = 5
     num_rows = int(np.ceil(num_traits / num_cols))
 
     fig, axs = plt.subplots(
@@ -293,38 +329,28 @@ def plot_all_trait_obs_pred(trait_dirs, mapping=None):
     for i, trait_dir in enumerate(trait_dirs):
         trait = trait_dir.stem
 
+        log = trait.endswith("_ln")
+
         if mapping:
             # Update trait name to match the mapping
             trait_id = trait.split("_")[2].split("X")[1]
             trait_set = trait.split("_")[0]
             trait = f"{trait_set} {mapping[trait_id]}"
+            if log:
+                trait += " (log)"
 
         obs_vs_pred = pd.read_parquet(trait_dir / "cv_predictions.parq")
-        axs[i] = plot_observed_vs_predicted(
-            axs[i], obs_vs_pred["observed"], obs_vs_pred["predicted"], trait
-        )
+
+        obs = obs_vs_pred["observed"]
+        pred = obs_vs_pred["predicted"]
+
+        axs[i] = plot_observed_vs_predicted(axs[i], obs, pred, trait)
+
+    # Ensure that only the left-most column has y-axis labels
+    for i in range(num_traits):
+        if i % num_cols != 0:
+            axs[i].set_ylabel("")
 
     # Clean up empty subplots
     for i in range(num_traits, num_rows * num_cols):
         fig.delaxes(axs[i])
-
-
-def plot_gdf_map(gdf: gpd.GeoDataFrame, column: str) -> None:
-    import cartopy.crs as ccrs
-    import matplotlib.pyplot as plt
-
-    # Set up the plot
-    fig = plt.figure(figsize=(10, 5))
-    ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-
-    # Add coastlines
-    ax.coastlines(resolution="110m")
-
-    # Set extent to global
-    ax.set_global()
-
-    # Plot the GeoDataFrame as a raster map
-    gdf.plot(ax=ax, column=column, cmap="OrRd", legend=True)
-
-    # Show the plot
-    plt.show()
