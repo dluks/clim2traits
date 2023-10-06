@@ -18,7 +18,14 @@ import xarray as xr
 
 from utils.data_retrieval import gdf_from_list
 from utils.dataset_tools import FileExt, Unit
-from utils.geodata import clip_to_land, drop_XY_NAs, get_epsg, merge_gdfs, pad_raster
+from utils.geodata import (
+    clip_to_land,
+    drop_XY_NAs,
+    fill_holes,
+    get_epsg,
+    merge_gdfs,
+    pad_raster,
+)
 from utils.training import TrainingConfig, TrainingRun
 from utils.visualize import plot_distributions, plot_raster_maps
 
@@ -522,6 +529,29 @@ class Dataset:
     def plot_distributions(self, pdf: bool = False) -> None:
         """Plots the distributions of the dataset."""
         plot_distributions(self.df[self.cols], pdf)
+
+    def fill_holes(self, method: str = "cubic") -> None:
+        """Fills holes in a dataset."""
+
+        for fpath in self.fpaths:
+            fpath = Path(fpath)
+            print(f"Filling holes in {fpath.name}...")
+            ds = riox.open_rasterio(fpath, masked=True, chunks={"x": 360, "y": 360})
+            ds = fill_holes(ds, method=method)
+
+            out_dir = Path(fpath.parent, "interpolated")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / fpath.name
+
+            ds.rio.to_raster(
+                out_path,
+                compress="zstd",
+                tiled=True,
+                blockxsize=256,
+                blockysize=256,
+                predictor=2,
+                num_threads=20,
+            )
 
 
 def resample_dataset(

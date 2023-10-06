@@ -110,6 +110,15 @@ if __name__ == "__main__":
         with Pool(cpus) as p:
             p.starmap(daily_to_multiyear_monthly, zip(band_paths, [out_dir] * cpus))
 
+    if args.fill_holes:
+        vodca = Dataset(
+            res=0.25,
+            unit=Unit.DEGREE,
+            collection_name=CollectionName.VODCA,
+        )
+
+        vodca.fill_holes(method="linear")
+
     if args.resample_05:
         vodca = Dataset(
             res=0.25,
