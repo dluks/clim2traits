@@ -571,14 +571,15 @@ def resample_dataset(
         unit (Unit): New unit.
         format (str, optional): Format of the output file. Options are ["GTiff",
             "netcdf", "zarr"]. Defaults to "GTiff".
-        resample_alg (int, optional): Resampling algorithm. See
-            https://rasterio.readthedocs.io/en/stable/api/rasterio.enums.html#rasterio.enums.Resampling
+        resample_alg (int, optional): Resampling algorithm. See https://rasterio.readthedocs.io/en/stable/api/rasterio.enums.html#rasterio.enums.Resampling
             for options. Defaults to 0.
         dry_run (bool, optional): If True, then the function will not write any files.
     """
     # Check if the dataset resolution is the same as the new resolution
     if dataset.res == resolution and dataset.unit == unit:
         raise ValueError(f"Dataset resolution is already {resolution} {unit.abbr}")
+
+    upsample = dataset.res > resolution and dataset.unit == unit
 
     # Create the new directory if it doesn't exist
     new_dir = Path(dataset.parent_dir, f"{resolution}_{unit.abbr}")
@@ -593,7 +594,13 @@ def resample_dataset(
 
     for fpath in dataset.fpaths:
         fpath = Path(fpath)
+
         new_fname = fpath.name.replace(dataset.res_str, f"{resolution}_{unit.abbr}")
+
+        # Check for interpolated version of the file if upsampling and use that if it exists.
+        if upsample and Path(fpath.parent, "interpolated", fpath.name).exists():
+            print(f"Using interpolated version of {fpath.name}")
+            fpath = Path(fpath.parent, "interpolated", fpath.name)
 
         # Create the new filename
         new_fpath = new_dir / new_fname

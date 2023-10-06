@@ -92,6 +92,7 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--standardize", action="store_true")
+    parser.add_argument("--fill-holes", action="store_true")
     parser.add_argument("--resample_05", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
 
