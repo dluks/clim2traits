@@ -1,5 +1,4 @@
 import argparse
-import parser
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -94,6 +93,7 @@ if __name__ == "__main__":
     parser.add_argument("--standardize", action="store_true")
     parser.add_argument("--fill-holes", action="store_true")
     parser.add_argument("--resample_05", action="store_true")
+    parser.add_argument("--resample_001", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
@@ -129,4 +129,15 @@ if __name__ == "__main__":
 
         resample_dataset(
             vodca, 0.5, unit=Unit.DEGREE, resample_alg=5, dry_run=args.dry_run
+        )
+
+    if args.resample_001:
+        vodca = Dataset(
+            res=0.25,
+            unit=Unit.DEGREE,
+            collection_name=CollectionName.VODCA,
+        )
+
+        resample_dataset(
+            vodca, 0.01, unit=Unit.DEGREE, resample_alg=1, dry_run=args.dry_run
         )
