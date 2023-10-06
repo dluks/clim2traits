@@ -362,8 +362,11 @@ def fill_holes(ds: xr.Dataset, method: str = "cubic") -> xr.Dataset:
     return ds
 
 
+def pad_raster(
+    ds: xr.Dataset, minx: int = -180, miny: int = -60, maxx: int = 180, maxy: int = 90
+) -> xr.Dataset:
     """Pads a raster dataset to the full extent of the globe."""
-    ds = ds.rio.pad_box(minx=180, miny=-90, maxx=180, maxy=90)
+    ds = ds.rio.pad_box(minx=minx, miny=miny, maxx=maxx, maxy=maxy)
     return ds
 
 

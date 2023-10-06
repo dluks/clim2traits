@@ -613,7 +613,7 @@ def resample_dataset(
         if match_raster:
             # Make an empty dataset with the new extent and resolution
             # Define the global extent
-            xmin, ymin, xmax, ymax = (-180.0, -90.0, 180.0, 90.0)
+            xmin, ymin, xmax, ymax = (-180.0, -60.0, 180.0, 90.0)
 
             # Calculate the number of rows and columns based on the desired resolution
             nrows = int((ymax - ymin) / res)

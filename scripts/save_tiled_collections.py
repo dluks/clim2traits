@@ -17,7 +17,7 @@ DS_RES = 0.01
 def generate_coords(tile_size: int = 5) -> list[tuple]:
     coords = []
     for tile_lon in np.arange(-180, 180, tile_size):
-        for tile_lat in np.arange(-90, 90, tile_size):
+        for tile_lat in np.arange(-60, 90, tile_size):
             coords.append(
                 (tile_lon, tile_lat, tile_lon + tile_size, tile_lat + tile_size)
             )
