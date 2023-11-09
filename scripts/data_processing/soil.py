@@ -7,7 +7,7 @@ import rioxarray as riox
 from utils.dataset_tools import Unit
 from utils.datasets import CollectionName, Dataset, resample_dataset
 
-soil = Dataset(res=0.01, unit=Unit.DEGREE, collection_name=CollectionName.SOIL)
+soil = Dataset(res=1, unit=Unit.KILOMETER, collection_name=CollectionName.SOIL)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -60,8 +60,7 @@ if __name__ == "__main__":
             0.5,
             Unit.DEGREE,
             resample_alg=5,
-            clip_land=True,
-            match_raster="data/modis/0.5_deg/2000-2004_sur_refl_multiyear_mean_m10_band01.tif",
+            match_raster=True,
             dry_run=args.dry_run,
         )
 
