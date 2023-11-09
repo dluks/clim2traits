@@ -1,5 +1,5 @@
 import argparse
-import multiprocessing as mp
+import sys
 from pathlib import Path
 
 import dask_geopandas as dgpd
@@ -8,17 +8,30 @@ import geopandas as gpd
 from utils.spatial_stats import impute_missing
 
 
-def impute_tile(tile, out_dir):
+def impute_tile(tile_gdf: Path, out_dir: Path, verbose: bool = False):
     """Impute missing values in a single tile"""
-    print(f"Imputing {tile.stem}")
-    gdf = dgpd.read_parquet(tile).compute()
-    df_imp = impute_missing(gdf.drop(columns=["geometry"]), verbose=False)
-    gdf = gpd.GeoDataFrame(df_imp, geometry=gdf.geometry, crs=gdf.crs)
-    dgdf_imp = dgpd.from_geopandas(gdf, npartitions=20)
-    dgdf_imp.to_parquet(
-        Path(out_dir, tile.name), compression="zstd", compression_level=2
-    )
-    print(f"Imputed {tile.stem}")
+    print(f"Imputing {tile_gdf.stem}")
+    try:
+        gdf = dgpd.read_parquet(tile_gdf).compute()
+
+        # Remove columns containing "tiled" in the name (this is due to a bug in
+        # saved_tiled_collections.py)
+        gdf = gdf.loc[:, ~gdf.columns.str.contains("tiled")]
+
+        df_imp = impute_missing(gdf.drop(columns=["geometry"]), verbose=verbose)
+        gdf = gpd.GeoDataFrame(
+            df_imp.reset_index(drop=True),
+            geometry=gdf.reset_index(drop=True).geometry,
+            crs=gdf.crs,
+        )
+        dgdf_imp = dgpd.from_geopandas(gdf, npartitions=20)
+        dgdf_imp.to_parquet(
+            Path(out_dir, tile_gdf.name), compression="zstd", compression_level=2
+        )
+        print(f"Imputed {tile_gdf.stem}")
+    except Exception as e:
+        print(f"Failed to impute {tile_gdf.stem}")
+        print(e)
 
 
 if __name__ == "__main__":
@@ -28,7 +41,11 @@ if __name__ == "__main__":
         type=str,
         help="Path to tiled collection",
     )
-    parser.add_argument("--mp", action="store_true")
+    parser.add_argument(
+        "-v",
+        action="store_true",
+        help="Print verbose output",
+    )
 
     args = parser.parse_args()
 
@@ -40,21 +57,6 @@ if __name__ == "__main__":
 
     tiles = collection_path.glob("*.parq*")
 
-    if not args.mp:
-        for tile in tiles:
-            impute_tile(tile, imputed_dir)
-        exit()
-    else:
-        print("Running in multiprocessing mode")
-        # Create a pool of worker processes
-        num_processes = mp.cpu_count()
-        with mp.Pool(num_processes) as pool:
-            # Apply the impute_tile function to each tile in parallel
-            results = [
-                pool.apply_async(impute_tile, args=(tile, imputed_dir))
-                for tile in tiles
-            ]
-
-            # Wait for all worker processes to finish
-            for result in results:
-                result.wait()
+    for tile in tiles:
+        impute_tile(tile, imputed_dir, args.v)
+    sys.exit(0)
