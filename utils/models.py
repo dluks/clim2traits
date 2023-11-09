@@ -213,13 +213,17 @@ class Prediction:
     @cached_property
     def df(self) -> gpd.GeoDataFrame:
         # Make sure train and new columns match by mapping new columns to train columns
-        # self.new_data = map_new_columns(
-        #     train_df=self.trained_set.Xy.X.df, new_df=self.new_data
-        # )
-        # if self.new_data_imputed is not None:
-        #     self.new_data_imputed = map_new_columns(
-        #         train_df=self.trained_set.Xy.X.df, new_df=self.new_data_imputed
-        #     )
+        geom = self.new_data.geometry
+        crs = self.new_data.crs
+        index = self.new_data.index
+
+        self.new_data = map_new_columns(
+            train_df=self.trained_set.Xy.X.df, new_df=self.new_data
+        )
+        if self.new_data_imputed is not None:
+            self.new_data_imputed = map_new_columns(
+                train_df=self.trained_set.Xy.X.df, new_df=self.new_data_imputed
+            )
 
         # Generate predictions
         prediction = self.trained_set.model.predict(
@@ -228,9 +232,9 @@ class Prediction:
         d = {self.trained_set.y_name: prediction}
         df = gpd.GeoDataFrame(
             d,
-            geometry=self.new_data.geometry,
-            crs=self.new_data.crs,
-            index=self.new_data.index,
+            geometry=geom,
+            crs=crs,
+            index=index,
         )
 
         # Area of Applicability
@@ -291,8 +295,9 @@ def map_new_columns(
     train_df,
     new_df,
 ) -> gpd.GeoDataFrame:
+    """Map new columns to training columns."""
     # Load map keys from file (to match training columns with new data columns)
-    with open("data/collections/map_keys_new.json", "r") as f:
+    with open("data/collections/map_keys_new.json", "r", encoding="utf-8") as f:
         map_keys = json.load(f)
 
     for _, value in map_keys.items():
