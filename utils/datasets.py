@@ -558,8 +558,7 @@ def resample_dataset(
     dataset: Dataset,
     resolution: Union[float, int],
     unit: Unit,
-    format: str = "GTiff",
-    resample_alg: int = 0,
+    resample_alg: int = 5,
     match_raster: bool = True,
     dry_run: bool = False,
 ) -> None:
@@ -572,7 +571,7 @@ def resample_dataset(
         format (str, optional): Format of the output file. Options are ["GTiff",
             "netcdf", "zarr"]. Defaults to "GTiff".
         resample_alg (int, optional): Resampling algorithm. See https://rasterio.readthedocs.io/en/stable/api/rasterio.enums.html#rasterio.enums.Resampling
-            for options. Defaults to 0.
+            for options. Defaults to 5 (average).
         dry_run (bool, optional): If True, then the function will not write any files.
     """
     # Check if the dataset resolution is the same as the new resolution
