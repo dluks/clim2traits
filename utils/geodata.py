@@ -15,7 +15,9 @@ from rasterio.enums import Resampling
 NPARTITIONS = os.cpu_count()
 
 
-def ds2gdf(ds: xr.DataArray, name: Optional[str] = None) -> gpd.GeoDataFrame:
+def ds2gdf(
+    ds: xr.DataArray, name: Optional[str] = None
+) -> Union[gpd.GeoDataFrame, dgpd.GeoDataFrame]:
     """Converts an xarray dataset to a geopandas dataframe
 
     Args:
@@ -26,13 +28,17 @@ def ds2gdf(ds: xr.DataArray, name: Optional[str] = None) -> gpd.GeoDataFrame:
         geopandas.GeoDataFrame: GeoPandas dataframe
     """
     ds_name = name if name is not None else ds.name
+    crs = "EPSG:4326"
 
-    df = ds.to_dataframe(name=ds_name).reset_index()
-    geometry = gpd.points_from_xy(df.x, df.y)
-    df = df.drop(columns=["band", "spatial_ref", "x", "y"])
-    gdf = gpd.GeoDataFrame(data=df, crs=ds.rio.crs, geometry=geometry)
+    out = ds.to_dataframe(name=ds_name).reset_index()
+    out = out.drop(columns=["band", "spatial_ref"])
+    out = out.dropna(subset=out.columns.difference(["x", "y"]))
 
-    return gdf
+    geometry = gpd.points_from_xy(out.x, out.y)
+    out = out.drop(columns=["x", "y"])
+    out = gpd.GeoDataFrame(data=out, crs=crs, geometry=geometry)
+
+    return out
 
 
 def tif2gdf(
