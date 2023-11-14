@@ -3,8 +3,10 @@
 ################################
 import os
 from functools import reduce
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
+import dask_geopandas as dgpd
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -148,6 +150,7 @@ def resample_raster(
 def print_shapes(
     X: gpd.GeoDataFrame, Y: gpd.GeoDataFrame, rows_dropped: bool = True
 ) -> None:
+    """Print the shapes of the X and Y dataframes."""
     print("X shape:", X.shape)
     print("Y shape:", Y.shape)
 
@@ -172,7 +175,8 @@ def drop_XY_NAs(
         XY (Union[gpd.GeoDataFrame, pd.DataFrame]): Dataframe containing both X and Y
             variables
         X_cols (pd.Index): Index identifying the column(s) containing the predictors
-        Y_cols (pd.Index, str): Index or string identifying the column(s) containing the response variable(s)
+        Y_cols (pd.Index, str): Index or string identifying the column(s) containing the
+            response variable(s)
         verbose (int, optional): Verbosity level. Defaults to 0.
 
     Returns:
@@ -289,7 +293,7 @@ def ts_netcdf2gdfs(
     gdfs = []
 
     if isinstance(ds, (str, os.PathLike)):
-        band_name = str(ds).split("_")[0].lower() + "_band"
+        band_name = str(ds).split("_", maxsplit=1)[0].lower() + "_band"
         ds = xr.open_dataset(ds)
 
     data_label = str(list(ds.keys())[0])  # assume that the first variable is the data
@@ -338,8 +342,7 @@ def mask_oceans(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     land_mask = gpd.read_feather("./data/masks/land_mask_110m.feather")
     land_mask = land_mask.to_crs(gdf.crs)
-    # if isinstance(gdf, dgpd.GeoDataFrame):
-    #     gdf = gdf.compute()
+
     return gdf.clip(land_mask)
 
 
@@ -388,14 +391,29 @@ def compare_grids(
     grid1 = ds2gdf(grid1, name=grid1_name).dropna(subset=[grid1_name])
     grid2 = ds2gdf(grid2, name=grid2_name).dropna(subset=[grid2_name])
 
-    # Merge the two geodataframes on the geometry column such that only matching geometries are retained
+    # Merge the two geodataframes on the geometry column such that only matching
+    # geometries are retained
     merged = gpd.sjoin(grid1, grid2, how="inner", op="intersects")
     corr = merged[grid1_name].corr(merged[grid2_name])
     return corr
 
 
+def compare_gdfs(gdf1: gpd.GeoDataFrame, gdf2: gpd.GeoDataFrame) -> float:
+    """Calculate the correlation coefficient between two GeoDataFrames. Assumes that the
+    two GeoDataFrames consist of a geometry column and a single data column.
+    """
+    col1 = gdf1.columns.difference(["geometry"]).values[0]
+    col2 = gdf2.columns.difference(["geometry"]).values[0]
+    merged = gpd.sjoin(gdf1, gdf2, how="inner", predicate="intersects")
+    corr = merged[col1].corr(merged[col2])
+    return corr
+
+
 def compare_gdf_to_grid(
-    gdf: gpd.GeoDataFrame, grid: xr.DataArray, gdf_name: str, grid_name: str
+    gdf: gpd.GeoDataFrame,
+    grid: xr.DataArray,
+    gdf_name: str,
+    grid_name: str,
 ) -> np.float64:
     """Calculate the correlation coefficient between a GeoDataFrame and a raster grid."""
     # Ensure that the grids share the same CRS
@@ -404,7 +422,90 @@ def compare_gdf_to_grid(
     # Convert to GDFs
     grid = ds2gdf(grid, name=grid_name).dropna(subset=[grid_name])
 
-    # Merge the two geodataframes on the geometry column such that only matching geometries are retained
-    merged = gpd.sjoin(gdf, grid, how="inner", op="intersects")
+    # Merge the two geodataframes on the geometry column such that only matching
+    # geometries are retained
+    merged = gpd.sjoin(gdf, grid, how="inner", predicate="intersects")
+
     corr = merged[gdf_name].corr(merged[grid_name])
     return corr
+
+
+def splot_correlation(
+    gdf: gpd.GeoDataFrame, trait_id: str, trait_name: str, splot_set: str = "orig"
+) -> float:
+    """Get the correlation between trait predictions and sPlot maps for a given trait.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Trait predictions
+        trait_id (str): Trait ID
+        trait_name (str): Trait name
+        splot_set (str, optional): sPlot dataset (one of ["orig", "05_range"], case-insensitive).
+
+    Returns:
+        float: Pearson correlation coefficient
+    """
+    splot = riox.open_rasterio(
+        f"data/splot/0.01_deg/{splot_set.lower()}/sPlot_{trait_id}_0.01deg.tif",
+        masked=True,
+    )
+
+    splot = ds2gdf(splot, trait_name)
+    splot_corr = compare_gdfs(gdf, splot)
+
+    return splot_corr
+
+
+def back_transform_trait(gdf: gpd.GeoDataFrame, drop: bool = True) -> gpd.GeoDataFrame:
+    """Back-transforms the log-transformed trait values in the given GeoDataFrame.
+
+    Args:
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing log-transformed trait values
+        drop (bool, optional): Whether to drop the log-transformed trait column. Defaults to True.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame containing back-transformed trait values
+    """
+    log_col_name = gdf.columns.difference(["geometry"]).values[0]
+    bt_col_name = log_col_name.replace("_ln", "")
+
+    gdf[bt_col_name] = np.exp(gdf[log_col_name])
+
+    if drop:
+        gdf = gdf.drop(columns=[log_col_name])
+
+    return gdf
+
+
+def read_001_predictions(trait_id: str, model: str = "GBIF") -> gpd.GeoDataFrame:
+    """Reads the 0.01 degree predictions for a given trait and model.
+
+    Args:
+        trait_id (str): Trait ID
+        model (str, optional): . Model (one of ["GBIF", "sPlot"], case-insensitive).
+            Defaults to "GBIF".
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame containing the predictions
+    """
+    model = "GBIF" if model.lower() == "gbif" else "sPlot"
+
+    log = "_ln" if trait_id == "X50" else ""
+    col = f"{model}_TRYgapfilled_{trait_id}_05deg_mean{log}"
+    pred_path = Path(
+        "results",
+        "predictions",
+        "tiled_5x5_deg_MOD09GA.061_ISRIC_soil_WC_BIO_VODCA_0.01_deg_nan-strat=any_thr=0.5",
+        f"TRYgapfilled_{trait_id}_05deg_mean{log}",
+        model,
+        "merged_predictions.parq",
+    )
+
+    gdf = gpd.read_parquet(
+        pred_path,
+        columns=["geometry", col],
+    )
+
+    if trait_id == "X50":
+        gdf = back_transform_trait(gdf)
+
+    return gdf
