@@ -68,7 +68,7 @@ if __name__ == "__main__":
     parser.add_argument("--new", type=str)
     parser.add_argument("--new_imputed", type=str, default=None)
     parser.add_argument("--tiled", action="store_true")
-    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("-o", "--overwrite", action="store_true")
     parser.add_argument("--test-run", action="store_true")
     parser.add_argument("--trait-ids", nargs="+", type=int, default=None)
     args = parser.parse_args()
@@ -101,7 +101,10 @@ if __name__ == "__main__":
 
         new_data = Path(args.new)
 
-        pred_dir = Path(f"./results/predictions/{new_data.name}/{trait_name}")
+        pred_dir = Path(f"./results/predictions/{new_data.stem}/{trait_name}")
+
+        if args.tiled:
+            pred_dir = Path(f"./results/predictions/{new_data.name}/{trait_name}")
 
         if args.test_run:
             pred_dir = Path(f"./results/predictions/test/{new_data.name}/{trait_name}")
@@ -196,18 +199,20 @@ if __name__ == "__main__":
 
             out_fn = f"{new_data.stem}_predict.parq"
             write_kwargs = {"compression": "zstd", "compression_level": 2}
+            gbif_out_path = gbif_pred_dir / out_fn
+            splot_out_path = splot_pred_dir / out_fn
 
             # Only predict if not already predicted
-            if not (gbif_pred_dir / out_fn).exists() or args.overwrite:
+            if not gbif_out_path.exists() or args.overwrite:
                 pred_gbif_df = pred_gbif.df
-                pred_gbif_df.to_parquet(gbif_pred_dir / out_fn, **write_kwargs)
+                pred_gbif_df.to_parquet(gbif_out_path, **write_kwargs)
                 print(f"GBIF predicted for {trait_name}")
             else:
                 print(f"Already predicted GBIF for {trait_name}. Skipping...")
 
-            if not (splot_pred_dir / out_fn).exists() or args.overwrite:
+            if not splot_out_path.exists() or args.overwrite:
                 pred_splot_df = pred_splot.df
-                pred_splot_df.to_parquet(splot_pred_dir / out_fn, **write_kwargs)
+                pred_splot_df.to_parquet(splot_out_path, **write_kwargs)
                 print(f"sPlot predicted for {trait_name}")
             else:
                 print(f"Already predicted sPlot for {trait_name}. Skipping...")

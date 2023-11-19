@@ -13,6 +13,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
 ### CONFIG
 RANGE_05 = False
+PFT = "Grass"
+RES = 0.01
+BBOX = (-180, -60, 180, 90)
 
 
 def rasterize_points(
@@ -81,17 +84,14 @@ def write_raster(
 
 def main():
     """Convert sPlot data to raster grids."""
-    splot_cwm = pd.read_csv("data/gbif-splot_raw/sPlotOpen_TRYgapfilled_cwm.csv").drop(
-        columns=["PlotObservationID", "Releve_area"]
-    )
+    splot_cwm = pd.read_csv(
+        f"data/gbif-splot_raw/sPlot_cwms/sPlotOpen_TRYgapfilled_cwm{PFT}.csv"
+    ).drop(columns=["PlotObservationID", "Releve_area"])
 
-    out_dir = Path("data/splot/0.01_deg/")
+    out_dir = Path(f"data/splot/{PFT}/{RES:g}_deg")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     traits = splot_cwm.columns.difference(["Latitude", "Longitude"])
-
-    res = 0.01
-    bbox = (-180, -60, 180, 90)
 
     for trait in traits:
         logging.info("Processing trait %s", trait)
@@ -102,9 +102,11 @@ def main():
 
         if RANGE_05:
             out_dir = out_dir / "05_range"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
             splot_05 = riox.open_rasterio(
                 Path(
-                    "GBIF_trait_maps/global_maps/Shrub_Tree_Grass/05deg/",
+                    f"GBIF_trait_maps/global_maps/{PFT}/05deg/",
                     f"sPlot_TRYgapfilled_{trait}_05deg.grd",
                 ),
                 masked=True,
@@ -123,9 +125,10 @@ def main():
             logging.info("Dropped %d points outside range", before - after)
         else:
             out_dir = out_dir / "orig"
+            out_dir.mkdir(parents=True, exist_ok=True)
 
-        grid = rasterize_points(points, res, bbox)
-        write_raster(grid, res, bbox, out_dir / f"sPlot_{trait}_0.01deg.tif")
+        grid = rasterize_points(points, RES, BBOX)
+        write_raster(grid, RES, BBOX, out_dir / f"sPlot_{trait}_0.01deg.tif")
 
         logging.info("Processed %s", trait)
 

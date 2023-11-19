@@ -54,7 +54,7 @@ def build_collection(
     if thresh is not None:
         collection_name += f"_thr={thresh}"
 
-    return X.df, collection_name
+    return X.df.reset_index(drop=True), collection_name
 
 
 def save_collection(

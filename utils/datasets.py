@@ -7,6 +7,7 @@ import warnings
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
+from multiprocessing import Pool
 from pathlib import Path
 from typing import Optional, Union
 
@@ -561,6 +562,8 @@ def resample_dataset(
     resample_alg: int = 5,
     match_raster: bool = True,
     dry_run: bool = False,
+    num_procs: int = 1,
+    overwrite: bool = False,
 ) -> None:
     """Resamples a dataset to a new resolution and unit.
 
@@ -573,6 +576,11 @@ def resample_dataset(
         resample_alg (int, optional): Resampling algorithm. See https://rasterio.readthedocs.io/en/stable/api/rasterio.enums.html#rasterio.enums.Resampling
             for options. Defaults to 5 (average).
         dry_run (bool, optional): If True, then the function will not write any files.
+            Defaults to False.
+        num_procs (int, optional): Number of processes to use for multiprocessing.
+            Defaults to 1.
+        overwrite (bool, optional): If True, then the function will overwrite existing
+            files. Defaults to False.
     """
     # Check if the dataset resolution is the same as the new resolution
     if dataset.res == resolution and dataset.unit == unit:
@@ -581,7 +589,7 @@ def resample_dataset(
     upsample = dataset.res > resolution and dataset.unit == unit
 
     # Create the new directory if it doesn't exist
-    new_dir = Path(dataset.parent_dir, f"{resolution}_{unit.abbr}")
+    new_dir = Path(dataset.parent_dir, f"{resolution:g}_{unit.abbr}")
     new_dir.mkdir(parents=True, exist_ok=True)
 
     if unit == Unit.SECOND:
@@ -591,88 +599,135 @@ def resample_dataset(
     else:
         res = resolution
 
-    for fpath in dataset.fpaths:
-        fpath = Path(fpath)
+    new_res_str = f"{res:g}_{unit.abbr}"
 
-        new_fname = fpath.name.replace(dataset.res_str, f"{resolution}_{unit.abbr}")
-
-        # Check for interpolated version of the file if upsampling and use that if it exists.
-        if upsample and Path(fpath.parent, "interpolated", fpath.name).exists():
-            print(f"Using interpolated version of {fpath.name}")
-            fpath = Path(fpath.parent, "interpolated", fpath.name)
-
-        # Create the new filename
-        new_fpath = new_dir / new_fname
-        new_fpath = new_fpath.with_suffix(".tif")
-
-        if dry_run:
-            print(f"Would write to {new_fpath}")
-            continue
-
-        ds = riox.open_rasterio(fpath, masked=True, chunks={"x": 360, "y": 360})
-        # set CRS to EPSG: 4326 if it doesn't exist
-        if not ds.rio.crs:
-            ds.rio.write_crs("EPSG:4326", inplace=True)
-
-        ds = clip_and_pad_dataset(ds)
-
-        if match_raster:
-            # Make an empty dataset with the new extent and resolution
-            # Define the global extent
-            xmin, ymin, xmax, ymax = (-180.0, -60.0, 180.0, 90.0)
-
-            # Calculate the number of rows and columns based on the desired resolution
-            nrows = int((ymax - ymin) / res)
-            ncols = int((xmax - xmin) / res)
-            shift = res / 2
-
-            # Generate lat (y) and lon (x) grid and round values to two decimal places
-            y = np.linspace(ymax - shift, ymin + shift, nrows)
-            x = np.linspace(xmin + shift, xmax - shift, ncols)
-
-            # Create the empty DataArray with the desired dimensions and fill with ones
-            target_grid = xr.DataArray(
-                data=np.ones((nrows, ncols)),
-                dims=("y", "x"),
-                coords={
-                    "y": y,
-                    "x": x,
-                },
+    resample_args = {
+        "res": res,
+        "out_dir": new_dir,
+        "ds_res_str": dataset.res_str,
+        "new_res_str": new_res_str,
+        "upsample": upsample,
+        "match_raster": match_raster,
+        "resample_alg": resample_alg,
+        "dry_run": dry_run,
+        "overwrite": overwrite,
+    }
+    if num_procs == 1:
+        for fpath in dataset.fpaths:
+            resample_file(fpath, resample_args)
+    else:
+        with Pool(num_procs) as pool:
+            pool.starmap(
+                resample_file, [(fpath, resample_args) for fpath in dataset.fpaths]
             )
-            target_grid.rio.write_crs("EPSG:4326", inplace=True)
-            # target = riox.open_rasterio(
-            #     match_raster, masked=True, chunks={"x": 360, "y": 360}
-            # )
-            ds = ds.rio.reproject_match(target_grid, resampling=resample_alg)
+        print("Finished resampling datasets.")
+        return None
+
+
+def resample_file(fpath, params: dict) -> None:
+    """Resamples a single DataArray."""
+    res = params["res"]
+    out_dir = params["out_dir"]
+    ds_res_str = params["ds_res_str"]
+    new_res_str = params["new_res_str"]
+    upsample = params["upsample"]
+    match_raster = params["match_raster"]
+    resample_alg = params["resample_alg"]
+    dry_run = params["dry_run"]
+    overwrite = params["overwrite"]
+
+    fpath = Path(fpath)
+
+    new_fname = fpath.name.replace(ds_res_str, new_res_str)
+
+    # Check for interpolated version of the file if upsampling and use that if it exists.
+    if upsample and Path(fpath.parent, "interpolated", fpath.name).exists():
+        print(f"Using interpolated version of {fpath.name}")
+        fpath = Path(fpath.parent, "interpolated", fpath.name)
+
+    # Create the new filename
+    new_fpath = out_dir / new_fname
+    new_fpath = new_fpath.with_suffix(".tif")
+
+    if dry_run:
+        print(f"Would write to {new_fpath}")
+        return None
+
+    if not overwrite and new_fpath.exists():
+        # Confirm that the file is not partially complete or empty. If it is, then
+        # continue processing it (overwrite it).
+        ds = riox.open_rasterio(new_fpath, masked=True, chunks={"x": 360, "y": 360})
+        if ds.rio.nodata is None:
+            warnings.warn(f"Overwriting {new_fpath} because it is empty or incomplete.")
         else:
-            ds = ds.rio.reproject(
-                dst_crs="EPSG:4326",
-                resolution=res,
-                resampling=resample_alg,
-                num_threads=20,
-            )
+            print(f"Skipping {new_fpath} because it already exists.")
+            return None
 
-        ds.rio.to_raster(
-            new_fpath,
-            compress="zstd",
-            tiled=True,
-            blockxsize=256,
-            blockysize=256,
-            predictor=2,
-            num_threads=20,
-            windowed=True,
-            compute=False,
+    ds = riox.open_rasterio(fpath, masked=True, chunks={"x": 360, "y": 360})
+    # set CRS to EPSG: 4326 if it doesn't exist
+    if not ds.rio.crs:
+        ds.rio.write_crs("EPSG:4326", inplace=True)
+
+    ds = clip_and_pad_dataset(ds)
+
+    if match_raster:
+        # Make an empty dataset with the new extent and resolution
+        # Define the global extent
+        xmin, ymin, xmax, ymax = (-180.0, -60.0, 180.0, 90.0)
+
+        # Calculate the number of rows and columns based on the desired resolution
+        nrows = int((ymax - ymin) / res)
+        ncols = int((xmax - xmin) / res)
+        shift = res / 2
+
+        # Generate lat (y) and lon (x) grid and round values to two decimal places
+        y = np.linspace(ymax - shift, ymin + shift, nrows)
+        x = np.linspace(xmin + shift, xmax - shift, ncols)
+
+        # Create the empty DataArray with the desired dimensions and fill with ones
+        target_grid = xr.DataArray(
+            data=np.ones((nrows, ncols)),
+            dims=("y", "x"),
+            coords={
+                "y": y,
+                "x": x,
+            },
         )
-        print(f"Wrote {str(new_fpath)}")
+        target_grid.rio.write_crs("EPSG:4326", inplace=True)
+        # target = riox.open_rasterio(
+        #     match_raster, masked=True, chunks={"x": 360, "y": 360}
+        # )
+        ds = ds.rio.reproject_match(target_grid, resampling=resample_alg)
+    else:
+        ds = ds.rio.reproject(
+            dst_crs="EPSG:4326",
+            resolution=res,
+            resampling=resample_alg,
+        )
 
-        # Check to confirm file was written
-        if not new_fpath.exists():
-            raise FileNotFoundError(f"Error in writing file: {new_fpath}")
+    ds.rio.to_raster(
+        new_fpath,
+        compress="zstd",
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
+        predictor=2,
+        num_threads=20,
+        windowed=True,
+        compute=False,
+    )
+    print(f"Wrote {str(new_fpath)}")
 
-        ds.close()
-        del ds
-        # Clean up memory with garbage collection
-        gc.collect()
+    # Check to confirm file was written
+    if not new_fpath.exists():
+        raise FileNotFoundError(f"Error in writing file: {new_fpath}")
+
+    ds.close()
+    del ds
+    # Clean up memory with garbage collection
+    gc.collect()
+
+    return None
 
 
 def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
