@@ -18,12 +18,11 @@ from ray.tune.sklearn import TuneSearchCV
 from sklearn.model_selection import BaseCrossValidator, cross_validate
 from xgboost import XGBRegressor
 
+from utils.geodata import drop_XY_NAs, merge_gdfs
 from utils.spatial_stats import block_cv_splits
 
 if TYPE_CHECKING:
     from utils.datasets import MLCollection
-
-from utils.geodata import drop_XY_NAs, merge_gdfs
 
 
 @dataclass
