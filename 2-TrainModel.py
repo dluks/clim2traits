@@ -29,6 +29,7 @@ def prep_data(
     X_names: list = ["all"],
     Y_names: list = ["gbif"],
     res: float = 0.5,
+    pft: str = "Shrub_Tree_Grass",
     X_collection: Optional[str] = None,
 ) -> MLCollection:
     """Load data and prepare for training"""
@@ -39,6 +40,7 @@ def prep_data(
         unit=Unit.DEGREE,
         collection_name=CollectionName.GBIF,
         band=GBIFBand.MEAN,
+        pft=pft,
         file_ext=FileExt.GRID,
     )
 
@@ -47,6 +49,7 @@ def prep_data(
         unit=Unit.DEGREE,
         collection_name=CollectionName.SPLOT,
         band=GBIFBand.MEAN,
+        pft=pft,
         file_ext=FileExt.GRID,
     )
 
@@ -54,12 +57,14 @@ def prep_data(
         res=res,
         collection_name=CollectionName.GBIF_LN,
         band=GBIFBand.MEAN,
+        pft=pft,
     )
 
     splot_ln = Dataset(
         res=res,
         collection_name=CollectionName.SPLOT_LN,
         band=GBIFBand.MEAN,
+        pft=pft,
     )
 
     all_rvs = [gbif, splot, gbif_ln, splot_ln]
@@ -179,14 +184,14 @@ if __name__ == "__main__":
         config.training_config.filter_y_outliers = None
 
     if args.verbose or args.debug:
-        print(f"X", args.X)
-        print(f"Y", args.Y)
+        print("X", args.X)
+        print("Y", args.Y)
         print(f"Resolution: {args.res}")
         print(f"iNaturalist transform: {args.inat_transform}")
         print(f"Resume: {args.resume}")
         print(f"Y indices: {args.y_idx}")
         print(f"Debug: {args.debug}")
-        print(f"Config:")
+        print("Config:")
         pprint(config.__dict__)
 
     XY = prep_data(

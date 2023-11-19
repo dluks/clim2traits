@@ -98,25 +98,25 @@ class CollectionName(Enum):
         "GBIF Traits (TRY Gap-Filled, outliers removed)",
         "GBIF",
         "gbif",
-        Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
+        Path("./GBIF_trait_maps/global_maps"),
     )
     GBIF_LN = (
-        "GBIF Traits (TRY Gap-Filled, outliers removed, log-transformed)",
+        "GBIF Traits (TRY Gap-Filled, outliers removed, log-transformed)" "GBIF_ln",
         "GBIF_ln",
         "gbif_ln",
-        Path("./data/gbif_ln"),
+        Path("./data/GBIF_trait_maps_ln"),
     )
     SPLOT = (
         "sPlotOpen Traits (TRY Gap-Filled)",
         "sPlotOpen",
         "splot",
-        Path("./GBIF_trait_maps/global_maps/Shrub_Tree_Grass"),
+        Path("./GBIF_trait_maps/global_maps"),
     )
     SPLOT_LN = (
         "sPlotOpen Traits (TRY Gap-Filled, log-transformed)",
         "sPlotOpen_ln",
         "splot_ln",
-        Path("./data/splot_ln"),
+        Path("./data/GBIF_trait_maps_ln"),
     )
     MODIS = (
         "MOD09GA.061 Terra Surface Reflectance Daily Global 1km and 500m",
@@ -224,10 +224,11 @@ class Dataset:
         file_ext: FileExt = FileExt.ANY,
         collection_name: CollectionName = CollectionName.OTHER,
         band: Optional[GBIFBand] = None,
+        pft: str = "Shrub_Tree_Grass",
         transform: str = "",
         bio_ids: list[str] = ["1", "4", "7", "12", "13-14", "15"],
-        filter_outliers: list = [],
-        _fpaths: list[Path] = [],
+        filter_outliers: Optional[tuple] = None,
+        _fpaths: Optional[list[Path]] = None,
     ):
         """Initialize a Dataset object with resolution, unit, and collection name.
 
@@ -242,6 +243,10 @@ class Dataset:
                 dataset. Defaults to FileExt.TIF.
             collection_name (CollectionName, optional): Name of the dataset collection.
                 Defaults to CollectionName.OTHER.
+            band (Optional[GBIFBand], optional): Band name for GBIF data. Defaults to
+                None.
+            pft (Optional[str], optional): Plant functional type for GBIF data. Defaults
+                to None.
             transform (str, optional): Transformation type of the dataset. Only applies
                 to iNaturalist data. Defaults to "".
             bio_ids (list[str], optional): List of bioclimatic variable IDs. Only
@@ -254,6 +259,7 @@ class Dataset:
         self.file_ext = file_ext
         self.collection_name = collection_name
         self.band = band
+        self.pft = pft
         self.transform = transform
         self.bio_ids = bio_ids
         self.filter_outliers = filter_outliers
@@ -261,17 +267,17 @@ class Dataset:
         self.parent_dir = self.collection_name.parent_dir
         self._fpaths = _fpaths
 
-        if _fpaths:
+        if _fpaths is not None:
             # Set the file extension according to that of the first file found (this could
             # be an issue if multiple file extensions are present)
             self.file_ext = FileExt(_fpaths[0].suffix[1:])
 
         # Transform is required for INAT datasets
         if (
-            self.collection_name == CollectionName.INAT
-            or self.collection_name == CollectionName.INAT_DGVM
-            or self.collection_name == CollectionName.SPLOT
-        ) and not self.transform:
+            self.collection_name
+            in (CollectionName.INAT, CollectionName.INAT_DGVM, CollectionName.SPLOT)
+            and not self.transform
+        ):
             self.transform = "exp_ln"
 
     def __str__(self):
@@ -295,10 +301,7 @@ class Dataset:
     def _search_str(self) -> str:
         """Returns the search string for the dataset."""
         search_str = ""
-        if (
-            self.collection_name == CollectionName.INAT
-            or self.collection_name == CollectionName.INAT_DGVM
-        ):
+        if self.collection_name in (CollectionName.INAT, CollectionName.INAT_DGVM):
             search_str = os.path.join(
                 self.parent_dir,
                 self.res_str,
@@ -315,9 +318,9 @@ class Dataset:
             search_str = os.path.join(
                 self.parent_dir, self.res_str, f"sPlot*.{self.file_ext.value}"
             )
-        elif (
-            self.collection_name == CollectionName.GBIF
-            or self.collection_name == CollectionName.SPLOT
+        elif self.collection_name in (
+            CollectionName.GBIF,
+            CollectionName.SPLOT,
         ):
             prefix = "GBIF" if self.collection_name == CollectionName.GBIF else "sPlot"
             if self.file_ext == FileExt.ANY:
@@ -327,17 +330,22 @@ class Dataset:
                 self.file_ext = FileExt.GRID
             search_str = os.path.join(
                 self.parent_dir,
+                self.pft,
                 self.res_str,
                 f"{prefix}*.{self.file_ext.value}",
             )
-        elif (
-            self.collection_name == CollectionName.GBIF_LN
-            or self.collection_name == CollectionName.SPLOT_LN
+        elif self.collection_name in (
+            CollectionName.GBIF_LN,
+            CollectionName.SPLOT_LN,
         ):
+            prefix = (
+                "GBIF" if self.collection_name == CollectionName.GBIF_LN else "sPlot"
+            )
             search_str = os.path.join(
                 self.parent_dir,
+                self.pft,
                 self.res_str,
-                f"*{self.band.readable}*.parq",
+                f"{prefix}*{self.band.readable}*.parq",
             )
         else:
             search_str = os.path.join(
@@ -413,6 +421,7 @@ class Dataset:
 
     @cached_property
     def epsg(self) -> int:
+        """Returns the EPSG code of the dataset."""
         return get_epsg(self.fpaths[0])
 
     @cached_property
@@ -420,16 +429,20 @@ class Dataset:
         """Returns a dataframe of the dataset."""
 
         if (
-            self.collection_name == CollectionName.GBIF
-            or self.collection_name == CollectionName.SPLOT
-            or self.collection_name == CollectionName.GBIF_LN
-            or self.collection_name == CollectionName.SPLOT_LN
-        ) and not self.band:
+            self.collection_name
+            in (
+                CollectionName.GBIF,
+                CollectionName.SPLOT,
+                CollectionName.GBIF_LN,
+                CollectionName.SPLOT_LN,
+            )
+            and not self.band
+        ):
             raise ValueError("Band must be specified for GBIF and sPlot data.")
 
-        if (
-            self.collection_name == CollectionName.GBIF_LN
-            or self.collection_name == CollectionName.SPLOT_LN
+        if self.collection_name in (
+            CollectionName.GBIF_LN,
+            CollectionName.SPLOT_LN,
         ):
             df = gpd.read_parquet(self.fpaths[0])
         else:
@@ -442,19 +455,20 @@ class Dataset:
         print("Dropping unnecessary columns...")
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
 
-        if self.filter_outliers:
+        if self.filter_outliers is not None:
             df = self._filter_outliers(df, self.filter_outliers)
         return df
 
     @staticmethod
     def _filter_outliers(
-        df: Union[pd.DataFrame, gpd.GeoDataFrame], bounds: list = [0.01, 0.99]
+        df: Union[pd.DataFrame, gpd.GeoDataFrame], bounds: tuple = (0.01, 0.99)
     ) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
         """Filters outliers from a dataset.
 
         Args:
             df (Union[pd.DataFrame, gpd.GeoDataFrame]): Dataset.
-            bounds (list, optional): Lower and upper bounds for filtering outliers.
+            bounds (tuple, optional): Lower and upper bounds for filtering outliers.
+                Defaults to (0.01, 0.99).
 
         Returns:
             Union[pd.DataFrame, gpd.GeoDataFrame]: Dataset with outliers removed.
@@ -473,10 +487,11 @@ class Dataset:
 
     @cached_property
     def cols(self) -> pd.Index:
+        """Returns the data columns of the dataset."""
         return self.df.columns.difference(["geometry"])
 
     @classmethod
-    def from_id(cls, id: str, band: Optional[str] = None) -> Dataset:
+    def from_id(cls, ds_id: str, band: Optional[str] = None) -> Dataset:
         """Returns a Dataset object from an identifier.
 
         Args:
@@ -485,12 +500,12 @@ class Dataset:
         Returns:
             Dataset: Dataset object.
         """
-        res_str = "_".join(id.split("_")[-2:])
-        short = id.split(f"_{res_str}")[0]
+        res_str = "_".join(ds_id.split("_")[-2:])
+        short = ds_id.split(f"_{res_str}")[0]
         if band:
             short = short.replace(f"_{band}", "")
         collection_name = CollectionName.from_short(short)
-        res = float(res_str.split("_")[0])
+        res = float(res_str.split("_", maxsplit=1)[0])
         unit = Unit.from_abbr(res_str.split("_")[1])
         ds_band = GBIFBand.from_readable(band) if band else None
 
