@@ -33,6 +33,8 @@ class TrainingResults:
     n_obs: int = 0
     run_id: str = ""
     rv_ds: list = field(default_factory=list)
+    transform: str = ""
+    pft: str = ""
     pred_ds: list = field(default_factory=list)
     collection_fn: Optional[str] = None
     res: str = "0.5_deg"
@@ -64,6 +66,8 @@ class TrainingResults:
                 "Response variable": self.rv,
                 "N observations": self.n_obs,
                 "RV datasets": [self.rv_ds],
+                "Transform": self.transform,
+                "PFT": self.pft,
                 "Predictor datasets": [self.pred_ds],
                 "collection": self.collection_fn,
                 "Resolution": self.res,
@@ -200,7 +204,9 @@ class TrainingRun:
         if XY.X.collection_file is not None:
             self.results.collection_fn = str(XY.X.collection_file)
         self.results.rv = self.y_col
+        self.results.transform = "log" if "_ln" in self.y_col else "none"
         self.results.run_id = self.id
+        self.results.pft = self.XY.Y.pft
         self.results.res = self.XY.X.datasets[0].res_str
         self.results.params = self.training_config.params
         self.results.search_n_trials = self.training_config.search_n_trials

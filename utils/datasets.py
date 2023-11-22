@@ -784,6 +784,14 @@ class DataCollection:
     def cols(self) -> Union[pd.Index, str]:
         return self.df.columns.difference(["geometry"])
 
+    @cached_property
+    def pft(self) -> str:
+        """Returns the plant functional type of the collection."""
+        pfts = {dataset.pft for dataset in self.datasets}
+        if len(pfts) > 1:
+            raise ValueError("Multiple plant functional types found in collection.")
+        return pfts.pop()
+
     @classmethod
     def from_ids(cls, ids: list[str], band: Optional[str] = None) -> DataCollection:
         """Returns a DataCollection object from a list of identifiers.

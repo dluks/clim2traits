@@ -142,17 +142,11 @@ def prep_data(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--X", nargs="+", type=str, default=["all"], help="X datasets")
-    parser.add_argument("--Y", nargs="+", type=str, default=["gbif"], help="Y datasets")
+    parser.add_argument("--Y", nargs="+", type=str, default=["all"], help="Y datasets")
     parser.add_argument(
         "--res", type=float, default=0.5, help="Resolution of the datasets"
     )
-    parser.add_argument(
-        "--inat_transform",
-        type=str,
-        default="exp_ln",
-        help="iNaturalist transform to use as response variable",
-        choices=["exp_ln", "ln"],
-    )
+    parser.add_argument("--pft", type=str, default="Shrub_Tree_Grass", help="PFT")
     parser.add_argument(
         "--X-collection",
         type=str,
@@ -187,7 +181,7 @@ if __name__ == "__main__":
         print("X", args.X)
         print("Y", args.Y)
         print(f"Resolution: {args.res}")
-        print(f"iNaturalist transform: {args.inat_transform}")
+        print(f"PFT: {args.pft}")
         print(f"Resume: {args.resume}")
         print(f"Y indices: {args.y_idx}")
         print(f"Debug: {args.debug}")
@@ -195,7 +189,11 @@ if __name__ == "__main__":
         pprint(config.__dict__)
 
     XY = prep_data(
-        X_names=args.X, Y_names=args.Y, res=args.res, X_collection=args.X_collection
+        X_names=args.X,
+        Y_names=args.Y,
+        res=args.res,
+        pft=args.pft,
+        X_collection=args.X_collection,
     )
 
     if args.verbose or args.debug:
