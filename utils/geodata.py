@@ -516,3 +516,11 @@ def read_001_predictions(trait_id: str, model: str = "GBIF") -> gpd.GeoDataFrame
         gdf = back_transform_trait(gdf)
 
     return gdf
+
+
+def num_to_str(number: Union[int, float]) -> str:
+    """Converts a number to a string with a leading zero if the number is less than 0.
+    Decimals are removed. Negative numbers are converted to positive numbers before
+    conversion.
+    E.g. 1.0 -> 1, 0.5 -> 05, 0.001 -> 001, -1 -> 1"""
+    return f"{np.abs(number):g}".replace(".", "")
