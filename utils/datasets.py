@@ -321,31 +321,23 @@ class Dataset:
         elif self.collection_name in (
             CollectionName.GBIF,
             CollectionName.SPLOT,
+            CollectionName.GBIF_LN,
+            CollectionName.SPLOT_LN,
         ):
-            prefix = "GBIF" if self.collection_name == CollectionName.GBIF else "sPlot"
-            if self.file_ext == FileExt.ANY:
-                # Set file extension to .grd for GBIF and sPlot data
-                # TODO: This is a hacky solution. Should probably rethink file ext
-                # property assignment altogether.
+            prefix = (
+                "GBIF"
+                if self.collection_name in (CollectionName.GBIF, CollectionName.GBIF_LN)
+                else "sPlot"
+            )
+            if self.collection_name in (CollectionName.GBIF, CollectionName.SPLOT):
                 self.file_ext = FileExt.GRID
+            else:
+                self.file_ext = FileExt.TIF
             search_str = os.path.join(
                 self.parent_dir,
                 self.pft,
                 self.res_str,
                 f"{prefix}*.{self.file_ext.value}",
-            )
-        elif self.collection_name in (
-            CollectionName.GBIF_LN,
-            CollectionName.SPLOT_LN,
-        ):
-            prefix = (
-                "GBIF" if self.collection_name == CollectionName.GBIF_LN else "sPlot"
-            )
-            search_str = os.path.join(
-                self.parent_dir,
-                self.pft,
-                self.res_str,
-                f"{prefix}*{self.band.readable}*.parq",
             )
         else:
             search_str = os.path.join(
@@ -433,26 +425,17 @@ class Dataset:
             in (
                 CollectionName.GBIF,
                 CollectionName.SPLOT,
-                CollectionName.GBIF_LN,
-                CollectionName.SPLOT_LN,
             )
             and not self.band
         ):
             raise ValueError("Band must be specified for GBIF and sPlot data.")
 
-        if self.collection_name in (
-            CollectionName.GBIF_LN,
-            CollectionName.SPLOT_LN,
-        ):
-            df = gpd.read_parquet(self.fpaths[0])
-        else:
-            print(f"Reading GDFs from fpaths for {self.collection_name.short}...")
-            df = gdf_from_list(
-                fns=self.fpaths,
-                band=self.band.value if self.band else None,
-            )
+        print(f"Reading GDFs from fpaths for {self.collection_name.short}...")
+        df = gdf_from_list(
+            fns=self.fpaths,
+            band=self.band.value if self.band else None,
+        )
 
-        print("Dropping unnecessary columns...")
         df = df.drop(columns=["x", "y", "band", "spatial_ref"], errors="ignore")
 
         if self.filter_outliers is not None:

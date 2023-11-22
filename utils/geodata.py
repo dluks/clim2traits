@@ -60,20 +60,27 @@ def tif2gdf(
     ds = validate_raster(raster)
     band_gdfs = []
 
-    if band_id:
+    if band_id and "band" in ds.coords:
         if "long_name" in ds.attrs.keys():
             band_name = ds.attrs["long_name"][band_id - 1]  # Band ints aren't 0-indexed
         else:
             band_name = f"_band{band_id:02d}"
-        band_ds = ds.sel(band=band_id)
-        band_ds.name = f"{ds.name}_{band_name}"
-        band_gdfs.append(ds2gdf(band_ds))
-    else:
+
+        if band_id not in ds.band.values:
+            # Should raise an error here, but this is a quick fix for now
+            band_gdfs.append(ds2gdf(ds))
+        else:
+            band_ds = ds.sel(band=band_id)
+            band_ds.name = f"{ds.name}_{band_name}"
+            band_gdfs.append(ds2gdf(band_ds))
+    elif "band" in ds.coords:
         for band in ds.band.values:
             band_ds = ds.sel(band=band)
             if ds.band.values.size > 1:
                 band_ds.name = f"{ds.name}_band{band:02d}"
             band_gdfs.append(ds2gdf(band_ds))
+    else:
+        band_gdfs.append(ds2gdf(ds))
 
     if len(band_gdfs) > 1:
         gdf = merge_gdfs(band_gdfs)
