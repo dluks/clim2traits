@@ -41,7 +41,6 @@ def prep_data(
         collection_name=CollectionName.GBIF,
         band=GBIFBand.MEAN,
         pft=pft,
-        file_ext=FileExt.GRID,
     )
 
     splot = Dataset(
@@ -50,20 +49,17 @@ def prep_data(
         collection_name=CollectionName.SPLOT,
         band=GBIFBand.MEAN,
         pft=pft,
-        file_ext=FileExt.GRID,
     )
 
     gbif_ln = Dataset(
         res=res,
         collection_name=CollectionName.GBIF_LN,
-        band=GBIFBand.MEAN,
         pft=pft,
     )
 
     splot_ln = Dataset(
         res=res,
         collection_name=CollectionName.SPLOT_LN,
-        band=GBIFBand.MEAN,
         pft=pft,
     )
 
@@ -103,10 +99,9 @@ def prep_data(
         )
 
         vodca = Dataset(
-            res=0.5,
+            res=res,
             unit=Unit.DEGREE,
             collection_name=CollectionName.VODCA,
-            file_ext=FileExt.NETCDF4,
         )
 
         all_predictors = [wc, modis, soil, vodca]

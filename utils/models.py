@@ -127,19 +127,17 @@ class TrainedSet:
 
     @classmethod
     def from_results_row(cls, row: pd.Series):
+        """Create a TrainedSet from a row in the results CSV."""
         predictor_ids = ast.literal_eval(row["Predictor datasets"])
         rv_ids = ast.literal_eval(row["RV datasets"])
         gbif_bands = [b.readable for b in GBIFBand]
         y_name = row["Response variable"]
         y_band = [b for b in gbif_bands if b in y_name][0]
 
-        Y = DataCollection.from_ids([id for id in rv_ids], y_band)
+        Y = DataCollection.from_ids(list(rv_ids), y_band)
         Y.df = Y.df[["geometry", y_name]]
 
-        if "imputed" in row["NaN strategy"] or "imputed" in row["collection"]:
-            imputed = True
-        else:
-            imputed = False
+        imputed = "imputed" in row["NaN strategy"] or "imputed" in row["collection"]
 
         if row["collection"] is not None:
             fpath = Path(row["collection"])

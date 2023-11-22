@@ -782,6 +782,7 @@ class DataCollection:
 
     @cached_property
     def cols(self) -> Union[pd.Index, str]:
+        """Returns the data columns of the collection"""
         return self.df.columns.difference(["geometry"])
 
     @cached_property
@@ -939,7 +940,6 @@ class MLCollection:
         y_idx: Optional[list[int]] = None,
         tune_params: bool = False,
         resume: bool = False,
-        debug: bool = False,
     ) -> None:
         """Train models for all response variables in MLCollection
 
@@ -971,7 +971,7 @@ class MLCollection:
         for i, y_col in enumerate(y_cols):
             if not resume:
                 # Only resume after first response var in the collection has completed
-                resume = False if i == 0 else True
+                resume = not i == 0
 
             print(f"Training model on {y_col}...")
 

@@ -18,13 +18,14 @@ def merge_predict_tiles(trait_dir: Path, trait_set: str = "GBIF"):
 
     Args:
         trait_dir (Path): Path to the trait directory.
-        trait_set (str): Name of the trait set. Defaults to "GBIF". Must be one of "GBIF" or "sPlot".
+        trait_set (str): Name of the trait set. Defaults to "GBIF". Must be one of
+            "GBIF" or "sPlot".
     """
     logging.info("Merging predictions for %s %s", trait_dir.name, trait_set)
     tiles = list(Path(trait_dir, f"{trait_set}/tiled_5x5_deg").glob("*.parq"))
     gdfs = [dgpd.read_parquet(tile, npartitions=20) for tile in tiles]
     gdfs = dd.concat(gdfs)
-    gdfs.to_parquet(
+    gdfs.to_parquet(  # type: ignore
         Path(trait_dir, f"{trait_set}/merged_predictions.parq"),
         compression="zstd",
         compression_level=2,
