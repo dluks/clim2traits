@@ -242,7 +242,7 @@ def impute_missing(data: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
 
 @timer
 def nearest_dist_chunked(training_data, new_data):
-    # Calculate nearest training instance to test data, return Euclidean distances
+    """Calculate nearest training instance to test data, return Euclidean distances"""
     distances = np.concatenate(
         [
             chunk.min(axis=1)
@@ -257,7 +257,7 @@ def nearest_dist_chunked(training_data, new_data):
 
 @timer
 def nearest_dist(training_data, new_data):
-    # Calculate nearest training instance to test data, return Euclidean distances
+    """Calculate nearest training instance to test data, return Euclidean distances"""
     distances = pairwise_distances(
         new_data, training_data, metric="euclidean", n_jobs=20
     ).min(axis=1)
@@ -267,13 +267,14 @@ def nearest_dist(training_data, new_data):
 
 @timer
 def calc_train_dists(training_data):
-    # Build matrix of pairwise distances
+    """Build matrix of pairwise distances"""
     train_dists = pairwise_distances(training_data, metric="euclidean", n_jobs=20)
     np.fill_diagonal(train_dists, np.nan)
     return train_dists
 
 
 def map_folds(fold_indices):
+    """Map training instances to fold IDs"""
     # First remove any within-fold duplicates
     fold_indices = [np.unique(fold) for fold in fold_indices]
 
@@ -305,6 +306,7 @@ def map_folds(fold_indices):
 
 
 def mask_folds(train_dist, folds):
+    """Mask training points in same fold for DI measure calculation"""
     # sort folds by point id for easier masking
     folds = folds[np.argsort(folds[:, 0])]
 
@@ -318,6 +320,7 @@ def mask_folds(train_dist, folds):
 
 @timer
 def calc_aoa(mindist, train_dist, thres):
+    """Calculate AOA"""
     # Scale distance to nearest training point by average distance across training data
     train_dist_mean = np.nanmean(train_dist, axis=1)
     train_dist_avgmean = np.mean(train_dist_mean)
