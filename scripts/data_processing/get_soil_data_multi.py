@@ -2,7 +2,7 @@
 import logging
 import os
 import time
-from functools import wraps
+from enum import Enum
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -18,7 +18,9 @@ logging.basicConfig(
 )
 
 
-class bcolors:
+class Colors(Enum):
+    """Colors for printing to terminal."""
+
     HEADER = "\033[95m"
     OKBLUE = "\033[94m"
     OKCYAN = "\033[96m"
@@ -28,28 +30,6 @@ class bcolors:
     ENDC = "\033[0m"
     BOLD = "\033[1m"
     UNDERLINE = "\033[4m"
-
-
-def retry(f):
-    @wraps(f)
-    def wrapped(*args, **kwargs):
-        max_tries = 5
-        for i in range(max_tries):
-            fn = os.path.basename(args[1])
-            try:
-                print(
-                    f"{bcolors.OKBLUE}Processing {bcolors.BOLD}{os.path.basename(fn)}{bcolors.ENDC}{bcolors.OKBLUE}... Attempt: {bcolors.ENDC}{i+1}"
-                )
-                return f(*args, **kwargs)
-            except Exception as ex:
-                template = "An exception of type {0} occurred. Arguments:\n{1!r}"
-                message = template.format(type(ex).__name__, ex.args)
-                print(f"{bcolors.WARNING}{message}{bcolors.ENDC}")
-                logging.warning(message)
-                time.sleep(10)
-                pass
-
-    return wrapped
 
 
 kwargs = {
@@ -93,11 +73,11 @@ if not RETRY_FAILED:
         for depth in depths:
             ds_full_label = f"{ds_name}_{depth}cm_mean"
 
-            out_fn = out_dir / f"{ds_full_label}_0.01_deg.tif"
+            out_filepath = out_dir / f"{ds_full_label}_0.01_deg.tif"
 
             ds_url = f"{ds_name}/{ds_full_label}.vrt"
-            url = curl_url + base_url + ds_url
-            args.append((url, out_fn))
+            full_url = curl_url + base_url + ds_url
+            args.append((full_url, out_filepath))
 else:
     failed = [
         "ocs_0-30cm_mean",
@@ -105,42 +85,42 @@ else:
 
     args = []
     for ds_full_label in failed:
-        ds_name = ds_full_label.split("_")[0]
+        ds_name = ds_full_label.split("_", maxsplit=1)[0]
 
-        out_fn = out_dir / f"{ds_full_label}_0.01_deg.tif"
+        out_filepath = out_dir / f"{ds_full_label}_0.01_deg.tif"
 
         ds_url = f"{ds_name}/{ds_full_label}.vrt"
-        url = curl_url + base_url + ds_url
-        args.append((url, out_fn))
+        full_url = curl_url + base_url + ds_url
+        args.append((full_url, out_filepath))
 
 
-# @retry
 def warp(url, out_fn: Path):
+    """Warp a raster from a URL to a local file."""
     base = out_fn.name
     max_tries = 5
     ds = None
     for i in range(max_tries):
         try:
             print(
-                f"{bcolors.OKBLUE}Processing {bcolors.BOLD}{base}{bcolors.ENDC}{bcolors.OKBLUE}... Attempt: {bcolors.ENDC}{i+1}"
+                f"{Colors.OKBLUE}Processing {Colors.BOLD}{base}{Colors.ENDC}"
+                f"{Colors.OKBLUE}... Attempt: {Colors.ENDC}{i+1}"
             )
             ds = gdal.Warp(str(out_fn), url, **kwargs)
             break
-        except Exception as ex:
+        except Exception as ex:  # pylint: disable=broad-except
             template = "An exception of type {0} occurred for {1}. Arguments:\n{2!r}"
             message = template.format(type(ex).__name__, ex.args, base)
             message = f"An exception of type {type(ex).__name__!r} occurred for {base}:\n{ex!s}"
-            print(f"{bcolors.WARNING}{message}{bcolors.ENDC}")
+            print(f"{Colors.WARNING}{message}{Colors.ENDC}")
             logging.warning(message)
             time.sleep(10)
-            pass
 
     if ds is not None:
-        print(f"{bcolors.OKGREEN}SUCCESS: {base}.{bcolors.ENDC}")
-        logging.info(f"SUCCESS: {base}.")
+        print(f"{Colors.OKGREEN}SUCCESS: {base}.{Colors.ENDC}")
+        logging.info("SUCCESS: %s", base)
     else:
-        print(f"{bcolors.FAIL}FAILED: {base}{bcolors.ENDC}")
-        logging.error(f"FAILED: {base}")
+        print(f"{Colors.FAIL}FAILED: {base}{Colors.ENDC}")
+        logging.error("FAILED: %s", base)
 
         if out_fn.exists():
             os.remove(out_fn)

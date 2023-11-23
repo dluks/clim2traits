@@ -18,6 +18,7 @@ from utils.spatial_stats import impute_missing
 def build_collection(
     res_str: str = "0.5_deg", nan_strategy: str = "all", thresh: Optional[float] = None
 ) -> Tuple[Union[gpd.GeoDataFrame, pd.DataFrame], str]:
+    """Build a collection of predictors."""
     valid_nan_strategies = ["all", "any"]
     if nan_strategy not in valid_nan_strategies:
         raise ValueError(
@@ -62,14 +63,12 @@ def save_collection(
     collection_name: str,
     impute: bool = False,
 ) -> None:
+    """Save a collection to disk."""
     if impute:
         print("Imputing missing values")
 
         data_cols = df.columns.difference(["geometry"])
 
-        # extract x and y from geometry and append as columns
-        # df["x"] = df.geometry.x
-        # df["y"] = df.geometry.y
         df = df.reset_index(drop=True)
         geom = df.geometry
 
@@ -115,7 +114,8 @@ if __name__ == "__main__":
         "--thresh",
         type=float,
         default=None,
-        help="Threshold for number of NaNs in a row. E.g. 0.95 would remove rows that have > 95% NaNs",
+        help="Threshold for number of NaNs in a row. E.g. 0.95 would remove rows that"
+        "have > 95% NaNs",
     )
     parser.add_argument(
         "--impute-missing", action="store_true", help="Whether to impute missing values"

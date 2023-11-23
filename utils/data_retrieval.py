@@ -30,7 +30,7 @@ def gdf_from_list(
 
     for fn in fns:
         file_ext = FileExt(Path(fn).suffix[1:])
-        if file_ext == FileExt.TIF or file_ext == FileExt.GRID:
+        if file_ext in (FileExt.TIF, FileExt.GRID):
             gdfs.append(tif2gdf(fn, band_id=band))
         elif file_ext == FileExt.NETCDF4:
             gdfs.append(ts_netcdf2gdfs(fn, ds_name))

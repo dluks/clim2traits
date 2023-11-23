@@ -18,20 +18,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.standardize:
-        # Standardize the files
         for fp in soil.fpaths:
             out_fpath = fp
-            # fp = Path(fp)
-            # parent_dir = fp.parent
-            # out_dir = parent_dir / "standardized"
-            # out_dir.mkdir(exist_ok=True)
-            # out_fpath = out_dir / f"{fp.stem}.tif"
 
             if args.dry_run:
                 print(f"Would write to {out_fpath}")
                 continue
 
             ds = riox.open_rasterio(fp, chunks={"x": 360, "y": 360})
+
+            if isinstance(ds, list):
+                raise ValueError(f"{fp} contains multiple datasets.")
+
             ds.rio.write_crs(ds.rio.crs, inplace=True)
             ds = ds.astype("int16")
             ds = ds.where(ds != ds.rio.nodata)
