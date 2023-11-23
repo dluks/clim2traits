@@ -24,9 +24,9 @@ def get_trait_id_from_data_name(data_name: str) -> str:
 def get_trait_name_from_trait_id(trait_id: str) -> str:
     """Get trait name from trait id, e.g. 1080 -> Root length per root dry mass
     (specific root length, SRL) (log-transformed)"""
-    with open("./trait_id_to_trait_full_name.json", encoding="utf-8") as f:
+    with open("./trait_mapping.json", encoding="utf-8") as f:
         mapping = json.load(f)
-        trait_name = mapping[trait_id]
+        trait_name = mapping[trait_id]["long"]
     return trait_name
 
 
