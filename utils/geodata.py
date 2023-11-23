@@ -2,6 +2,7 @@
 # Geodata utils
 ################################
 import os
+import sys
 from functools import reduce
 from pathlib import Path
 from typing import Optional, Tuple, Union
@@ -524,3 +525,44 @@ def num_to_str(number: Union[int, float]) -> str:
     conversion.
     E.g. 1.0 -> 1, 0.5 -> 05, 0.001 -> 001, -1 -> 1"""
     return f"{np.abs(number):g}".replace(".", "")
+
+
+def ds_to_raster(
+    ds: Union[xr.Dataset, xr.DataArray], out_fn: Union[str, os.PathLike]
+) -> None:
+    """Writes a rioxarray dataset to a raster."""
+    # Ensure that dataset is geospatial
+    try:
+        ds.rio.resolution()
+    except AttributeError as e:
+        print(e)
+        sys.exit()
+
+    write_args = {
+        "compress": "zstd",
+        "tiled": True,
+        "blockxsize": 256,
+        "blockysize": 256,
+        "predictor": 2,
+        "num_threads": 20,
+        "windowed": True,
+        "compute": False,
+    }
+
+    ds.rio.to_raster(out_fn, **write_args)
+
+
+def ds_to_netcdf(
+    ds: Union[xr.Dataset, xr.DataArray], out_fn: Union[str, os.PathLike]
+) -> None:
+    """Writes a rioxarray dataset to a netCDF."""
+    # Ensure that dataset is geospatial
+    try:
+        ds.rio.resolution()
+    except AttributeError as e:
+        print(e)
+        sys.exit()
+
+    encoding = {var: {"zlib": True, "complevel": 9} for var in ds.data_vars}
+
+    ds.to_netcdf(out_fn, encoding=encoding)
