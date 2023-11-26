@@ -156,7 +156,7 @@ class TrainedSet:
             else:
                 Xy_imputed = None
         else:
-            X = DataCollection.from_ids([id for id in predictor_ids])
+            X = DataCollection.from_ids(list(predictor_ids))
 
         Xy = MLCollection(X, Y)
         Xy.drop_NAs(verbose=1)
@@ -178,7 +178,7 @@ class TrainedSet:
             filtered_y_outliers = []
 
         return cls(
-            id=int(row.name.__str__()),  # type: ignore (pandas bug)
+            id=int(str(row.name)),
             run_id=row["Run ID"],
             y_name=y_name,
             Xy=Xy,
@@ -201,6 +201,8 @@ class TrainedSet:
 
 
 class Prediction:
+    """Trait predictions for new data."""
+
     def __init__(
         self,
         trained_set: TrainedSet,
@@ -213,7 +215,8 @@ class Prediction:
 
     @cached_property
     def df(self) -> gpd.GeoDataFrame:
-        # Make sure train and new columns match by mapping new columns to train columns
+        """Generate predictions for new data and save as GeoDataFrame."""
+        # TODO: This method does too much. Break it up into smaller methods.
         geom = self.new_data.geometry
         crs = self.new_data.crs
         index = self.new_data.index
