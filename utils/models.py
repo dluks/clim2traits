@@ -137,10 +137,13 @@ class TrainedSet:
         Y = DataCollection.from_ids(list(rv_ids), y_band)
         Y.df = Y.df[["geometry", y_name]]
 
-        imputed = "imputed" in row["NaN strategy"] or "imputed" in row["collection"]
+        if pd.isnull(row["X_train collection"]):
+            imputed = "imputed" in row["NaN strategy"]
+        else:
+            imputed = "imputed" in row["X_train collection"]
 
-        if row["collection"] is not None:
-            fpath = Path(row["collection"])
+        if not pd.isnull(row["X_train collection"]):
+            fpath = Path(row["X_train collection"])
             X = DataCollection.from_collection(fpath)
 
             if not imputed:

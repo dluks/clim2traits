@@ -36,7 +36,7 @@ class TrainingResults:
     transform: str = ""
     pft: str = ""
     pred_ds: list = field(default_factory=list)
-    collection_fn: Optional[str] = None
+    X_train_collection_fn: Optional[str] = None
     res: str = "0.5_deg"
     params: dict = field(default_factory=dict)
     cv_nrmse: Numeric = 0.0
@@ -69,7 +69,7 @@ class TrainingResults:
                 "Transform": self.transform,
                 "PFT": self.pft,
                 "Predictor datasets": [self.pred_ds],
-                "collection": self.collection_fn,
+                "X_train collection": self.X_train_collection_fn,
                 "Resolution": self.res,
                 "Best parameters": [self.params],
                 "Optimizer": self.optimizer,
@@ -199,10 +199,10 @@ class TrainingRun:
         self.results = TrainingResults()  # Initialize TrainingResults object
 
         # Store the IDs of the datasets used as predictors
-        self.results.rv_ds = [dataset.id for dataset in XY.Y.datasets]
-        self.results.pred_ds = [dataset.id for dataset in XY.X.datasets]
+        self.results.rv_ds = sorted([dataset.id for dataset in XY.Y.datasets])
+        self.results.pred_ds = sorted([dataset.id for dataset in XY.X.datasets])
         if XY.X.collection_file is not None:
-            self.results.collection_fn = str(XY.X.collection_file)
+            self.results.X_train_collection_fn = str(XY.X.collection_file)
         self.results.rv = self.y_col
         self.results.transform = "log" if "_ln" in self.y_col else "none"
         self.results.run_id = self.id
