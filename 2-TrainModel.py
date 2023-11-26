@@ -7,10 +7,15 @@
 import argparse
 from pathlib import Path
 from pprint import pprint
-from typing import Optional
+from typing import Optional, Union
 
+from scripts.save_collection import (
+    build_collection,
+    build_collection_fn,
+    save_collection,
+)
 from TrainModelConfig import TrainModelConfig
-from utils.dataset_tools import FileExt, Unit
+from utils.dataset_tools import Unit
 from utils.datasets import (
     CollectionName,
     DataCollection,
@@ -21,22 +26,11 @@ from utils.datasets import (
 
 config = TrainModelConfig()
 
-# ## Load data
 
-
-# %%
-def prep_data(
-    X_names: list = ["all"],
-    Y_names: list = ["gbif"],
-    res: float = 0.5,
-    pft: str = "Shrub_Tree_Grass",
-    X_collection: Optional[str] = None,
-) -> MLCollection:
-    """Load data and prepare for training"""
-
-    # Prep Y data
+def get_all_rvs(resolution: Union[float, int], pft: str) -> list[Dataset]:
+    """Get all response variables as a list of Datasets"""
     gbif = Dataset(
-        res=res,
+        res=resolution,
         unit=Unit.DEGREE,
         collection_name=CollectionName.GBIF,
         band=GBIFBand.MEAN,
@@ -44,7 +38,7 @@ def prep_data(
     )
 
     splot = Dataset(
-        res=res,
+        res=resolution,
         unit=Unit.DEGREE,
         collection_name=CollectionName.SPLOT,
         band=GBIFBand.MEAN,
@@ -52,84 +46,139 @@ def prep_data(
     )
 
     gbif_ln = Dataset(
-        res=res,
+        res=resolution,
         collection_name=CollectionName.GBIF_LN,
         pft=pft,
     )
 
     splot_ln = Dataset(
-        res=res,
+        res=resolution,
         collection_name=CollectionName.SPLOT_LN,
         pft=pft,
     )
 
-    all_rvs = [gbif, splot, gbif_ln, splot_ln]
+    return [gbif, splot, gbif_ln, splot_ln]
+
+
+def get_all_predictors(resolution: Union[float, int]) -> list[Dataset]:
+    """Get all predictors as a list of Datasets"""
+    wc = Dataset(
+        res=resolution,
+        unit=Unit.DEGREE,
+        collection_name=config.WC_name,
+    )
+
+    modis = Dataset(
+        res=resolution,
+        unit=Unit.DEGREE,
+        collection_name=config.MODIS_name,
+    )
+
+    soil = Dataset(
+        res=resolution,
+        unit=Unit.DEGREE,
+        collection_name=config.soil_name,
+    )
+
+    vodca = Dataset(
+        res=resolution,
+        unit=Unit.DEGREE,
+        collection_name=CollectionName.VODCA,
+    )
+
+    return [wc, modis, soil, vodca]
+
+
+def get_specific_datasets(
+    ds_names: list[str], all_datasets: list[Dataset]
+) -> list[Dataset]:
+    """Get specific datasets from a list of all datasets"""
+    datasets: list[Dataset] = []
+    for ds in all_datasets:
+        if ds.collection_name.abbr in ds_names:
+            datasets.append(ds)
+
+    if len(datasets) == 0:
+        raise ValueError(f"Could not find datasets: {ds_names}")
+
+    return datasets
+
+
+def prep_data(
+    X_names: list,
+    Y_names: list,
+    res: float = 0.5,
+    pft: str = "Shrub_Tree_Grass",
+    nan_strategy: Optional[str] = None,
+    thresh: Optional[float] = None,
+    X_collection: Optional[str] = None,
+) -> MLCollection:
+    """Load data and prepare for training"""
+
+    if X_names is None:
+        X_names = ["all"]
+
+    if Y_names is None:
+        Y_names = ["all"]
+
+    # Reponse variables
+    all_rvs = get_all_rvs(res, pft)
 
     if Y_names == ["all"]:
         rvs = all_rvs
     else:
-        rvs: list[Dataset] = []
-        for rv in all_rvs:
-            if rv.collection_name.abbr in Y_names:
-                rvs.append(rv)
+        rvs = get_specific_datasets(Y_names, all_rvs)
 
     Y = DataCollection(rvs)
 
-    # Prep X data
+    # Predictors
     if X_collection is not None:
         print("\nUsing collection: ", Path(X_collection).name)
         X = DataCollection.from_collection(X_collection)
     else:
-        wc = Dataset(
-            res=res,
-            unit=Unit.DEGREE,
-            collection_name=config.WC_name,
-        )
-
-        modis = Dataset(
-            res=res,
-            unit=Unit.DEGREE,
-            collection_name=config.MODIS_name,
-        )
-
-        soil = Dataset(
-            res=res,
-            unit=Unit.DEGREE,
-            collection_name=config.soil_name,
-        )
-
-        vodca = Dataset(
-            res=res,
-            unit=Unit.DEGREE,
-            collection_name=CollectionName.VODCA,
-        )
-
-        all_predictors = [wc, modis, soil, vodca]
+        all_predictors = get_all_predictors(res)
 
         if X_names == ["all"]:
             predictors = all_predictors
         else:
-            predictors: list[Dataset] = []
-            for predictor in all_predictors:
-                if predictor.collection_name.abbr in X_names:
-                    predictors.append(predictor)
+            predictors = get_specific_datasets(X_names, all_predictors)
+
+        predictor_names = [ds.collection_name.abbr for ds in predictors]
 
         X = DataCollection(predictors)
 
+        X, coll_name = build_collection(
+            data_collection=X,
+            res=res,
+            nan_strategy=nan_strategy,
+            predictor_names=predictor_names,
+            thresh=thresh,
+        )
+
+        coll_fn = build_collection_fn(coll_name)
+
+        if Path(coll_fn).exists():
+            print("Collection already exists. Loading...")
+            X = DataCollection.from_collection(coll_fn)
+        else:
+            print("Saving collection...")
+            save_collection(X, coll_name, impute=False)
+            X.collection_file = coll_fn
+
     print("\nPreparing data...")
     print("X:")
-    for dataset in X.datasets:
-        print("    ", dataset.collection_name.short)
+    for x_ds in X.datasets:
+        print("    ", x_ds.collection_name.short)
 
     print("Y:")
-    for dataset in Y.datasets:
-        print("    ", dataset.collection_name.short)
+    for y_ds in Y.datasets:
+        print("    ", y_ds.collection_name.short)
 
     # Convert to MLCollection for training
-    XY = MLCollection(X, Y)
-    XY.drop_NAs(verbose=1)
+    XY_collection = MLCollection(X, Y)
+    XY_collection.drop_NAs(verbose=1)
 
-    return XY
+    return XY_collection
 
 
 # ### Train models for each response variable
@@ -147,6 +196,13 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to existing X collection dataframe.",
+    )
+    parser.add_argument("--nan-strategy", type=str, default=None, help="NaN strategy")
+    parser.add_argument(
+        "--thresh",
+        type=float,
+        default=None,
+        help="Filter rows with NaNs exceeding this threshold.",
     )
     parser.add_argument("--tune", action="store_true", help="Tune hyperparameters")
     parser.add_argument(
@@ -188,6 +244,8 @@ if __name__ == "__main__":
         Y_names=args.Y,
         res=args.res,
         pft=args.pft,
+        nan_strategy=args.nan_strategy,
+        thresh=args.thresh,
         X_collection=args.X_collection,
     )
 

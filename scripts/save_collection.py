@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import warnings
+import logging
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
@@ -12,60 +12,82 @@ import pandas as pd
 from sklearn.experimental import enable_iterative_imputer  # type: ignore
 
 from utils.datasets import DataCollection
+from utils.geodata import num_to_str
 from utils.spatial_stats import impute_missing
 
 
 def build_collection(
-    res_str: str = "0.5_deg", nan_strategy: str = "all", thresh: Optional[float] = None
-) -> Tuple[Union[gpd.GeoDataFrame, pd.DataFrame], str]:
-    """Build a collection of predictors."""
-    valid_nan_strategies = ["all", "any"]
+    data_collection: Optional[DataCollection] = None,
+    res: Union[float, int] = 0.5,
+    predictor_names: Optional[list[str]] = None,
+    nan_strategy: Optional[str] = None,
+    thresh: Optional[float] = None,
+) -> Tuple[DataCollection, str]:
+    """Build a collection of predictors. If data_collection is not provided, then one
+    will be built from the res."""
+    valid_nan_strategies = ["all", "any", None]
     if nan_strategy not in valid_nan_strategies:
         raise ValueError(
             f"Invalid nan_strategy. Valid options are {valid_nan_strategies}"
         )
 
-    if nan_strategy == "all" and thresh is not None:
-        warnings.warn(
-            "Cannot specify thresh when nan_strategy is 'all'. Setting to None."
+    if nan_strategy in ["all", "any"] and thresh is not None:
+        raise ValueError("Cannot specify thresh when nan_strategy is 'all' or 'any'.")
+
+    if nan_strategy is None and thresh is None:
+        nan_strategy = "all"
+
+    if data_collection is None:
+        if predictor_names is None:
+            predictor_names = ["MOD09GA.061", "ISRIC_soil", "WC_BIO", "VODCA"]
+        predictor_ids = [f"{id}_{res:g}_deg" for id in predictor_names]
+        data_collection = DataCollection.from_ids(predictor_ids)
+    else:
+        predictor_names = (
+            [ds.collection_name.abbr for ds in data_collection.datasets]
+            if predictor_names is None
+            else predictor_names
         )
-        thresh = None
 
-    predictor_names = ["MOD09GA.061", "ISRIC_soil", "WC_BIO", "VODCA"]
-    # predictor_names = ["MOD09GA.061"]
-    predictor_ids = [f"{id}_{res_str}" for id in predictor_names]
+    logging.info("Getting X cols")
+    X_cols = data_collection.cols
 
-    X = DataCollection.from_ids(predictor_ids)
+    logging.info("Dropping NaN rows from X")
+    if nan_strategy is not None:
+        data_collection.df = data_collection.df.dropna(subset=X_cols, how=nan_strategy)
+    else:
+        data_collection.df = data_collection.df.dropna(
+            subset=X_cols, thresh=int(thresh * len(X_cols))
+        )
 
-    print("Getting X cols")
-    X_cols = X.cols
-
-    print("Dropping NaN rows from X")
-    if nan_strategy == "all":
-        X.df = X.df.dropna(subset=X_cols, how="all")
-    elif nan_strategy == "any":
-        if thresh is None:
-            X.df = X.df.dropna(subset=X_cols, how="any")
-        else:
-            X.df = X.df.dropna(subset=X_cols, thresh=int(thresh * len(X_cols)))
-
-    collection_name = "_".join(predictor_names)
-    collection_name += f"_{res_str}"
-    collection_name += f"_nan-strat={nan_strategy}"
+    coll_name = "_".join(predictor_names)
+    coll_name += f"_{num_to_str(res)}deg"
+    coll_name += f"_nan-strat={nan_strategy}"
     if thresh is not None:
-        collection_name += f"_thr={thresh}"
+        coll_name += f"_thr={thresh}"
 
-    return X.df.reset_index(drop=True), collection_name
+    return data_collection, coll_name
+    # return data_collection.df.reset_index(drop=True), coll_name
+
+
+def build_collection_fn(collection_name: str, impute: bool = False) -> str:
+    """Build a collection from a collection name."""
+    parent_dir = Path("data/collections")
+    parent_dir.mkdir(exist_ok=True, parents=True)
+    fn = f"{collection_name}{'_imputed' if impute else ''}.parquet"
+    return str(parent_dir / fn)
 
 
 def save_collection(
-    df: Union[gpd.GeoDataFrame, pd.DataFrame],
+    collection: DataCollection,
     collection_name: str,
     impute: bool = False,
 ) -> None:
     """Save a collection to disk."""
+    df = collection.df.reset_index(drop=True)
+
     if impute:
-        print("Imputing missing values")
+        logging.info("Imputing missing values")
 
         data_cols = df.columns.difference(["geometry"])
 
@@ -79,36 +101,32 @@ def save_collection(
             geometry=geom,
             index=df.index,
         )
-        out_stem = f"{collection_name}_imputed"
     else:
-        out_stem = collection_name
         df_out = df
 
     if isinstance(
         df_out, (gpd.GeoDataFrame, dgpd.GeoDataFrame, pd.DataFrame, dd.DataFrame)
     ):
-        print("Saving collection...")
-        out_dir = Path("data/collections")
-        out_dir.mkdir(exist_ok=True, parents=True)
-        out_fn = out_dir / f"{out_stem}.parquet"
+        logging.info("Saving collection...")
+        out_fn = build_collection_fn(collection_name, impute)
         df_out.to_parquet(out_fn, compression="zstd", compression_level=2)
     else:
         raise TypeError("df must be a GeoDataFrame or DataFrame")
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--res-str",
-        type=str,
-        default="0.5_deg",
-        help="Resolution string. E.g. '0.5_deg'",
+        "--res",
+        type=float,
+        default=0.5,
+        help="Resolution in degrees. Defaults to 0.5.",
     )
     parser.add_argument(
         "--nan-strategy",
         type=str,
-        default="all",
-        help="Strategy for handling NaNs. Options are 'all' or 'any'",
+        default=None,
+        help="Strategy for handling NaNs. Options are 'all' or 'any'. Defaults to None.",
     )
     parser.add_argument(
         "--thresh",
@@ -123,12 +141,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--collection", type=str, default=None, help="Path to existing collection"
     )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
 
-    print("Building collection")
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO)
+
+    logging.info("Building collection")
     if args.collection is not None:
-        print("Loading existing collection")
+        logging.info("Loading existing collection")
         collection_path = Path(args.collection)
         if collection_path.suffix == ".parquet":
             df = gpd.read_parquet(args.collection)
@@ -137,7 +159,7 @@ if __name__ == "__main__":
         collection_name = collection_path.stem
     else:
         df, collection_name = build_collection(
-            res_str=args.res_str, nan_strategy=args.nan_strategy, thresh=args.thresh
+            res=args.res, nan_strategy=args.nan_strategy, thresh=args.thresh
         )
 
     save_collection(
@@ -145,4 +167,8 @@ if __name__ == "__main__":
         collection_name,
         impute=args.impute_missing,
     )
-    print("Saving complete")
+    logging.info("Saving complete")
+
+
+if __name__ == "__main__":
+    main()
