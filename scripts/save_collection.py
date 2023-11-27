@@ -49,10 +49,8 @@ def build_collection(
             else predictor_names
         )
 
-    logging.info("Getting X cols")
     X_cols = data_collection.cols
 
-    logging.info("Dropping NaN rows from X")
     if nan_strategy is not None:
         data_collection.df = data_collection.df.dropna(subset=X_cols, how=nan_strategy)
     else:
@@ -67,7 +65,6 @@ def build_collection(
         coll_name += f"_thr={thresh}"
 
     return data_collection, coll_name
-    # return data_collection.df.reset_index(drop=True), coll_name
 
 
 def build_collection_fn(collection_name: str, impute: bool = False) -> str:
@@ -115,6 +112,7 @@ def save_collection(
 
 
 def main():
+    """Build and save a collection."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--res",
