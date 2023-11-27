@@ -624,6 +624,6 @@ def save_training_run_results(
         old_df = pd.read_csv(fn)
         old_df.dropna(how="all", inplace=True)  # clean up empty rows
         comb_df = pd.concat([old_df, df], ignore_index=True)
-        comb_df.to_csv(fn, index=False)
+        comb_df.to_csv(fn, index=False, compression={"method": "gzip", "level": 2})
     else:
-        df.to_csv(fn, index=False)
+        df.to_csv(fn, index=False, compression={"method": "gzip", "level": 2})

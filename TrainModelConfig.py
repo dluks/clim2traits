@@ -60,7 +60,7 @@ class TrainModelConfig:
 
         # Model training
         self.MODEL_DIR = pathlib.Path(self.RESULTS_DIR, "training")
-        self.csv_fname = "training_results.csv"
+        self.csv_fname = "training_results.csv.gz"
 
         # make the directory if it doesn't exist
         self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
