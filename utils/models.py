@@ -208,10 +208,12 @@ class Prediction:
         trained_set: TrainedSet,
         new_data: gpd.GeoDataFrame,
         new_data_imputed: Optional[gpd.GeoDataFrame] = None,
+        calc_aoa: bool = False
     ):
         self.trained_set = trained_set
         self.new_data = new_data
         self.new_data_imputed = new_data_imputed
+        self.calc_aoa = calc_aoa
 
     @cached_property
     def df(self) -> gpd.GeoDataFrame:
@@ -242,24 +244,27 @@ class Prediction:
         )
 
         # Area of Applicability
-        print("Calculating Area of Applicability...")
-        if self.trained_set.Xy_imputed is not None:
-            x_cols = self.trained_set.Xy_imputed.X.cols
-            train = self.trained_set.Xy_imputed.df[x_cols]
-        else:
-            train = self.trained_set.X
+        if self.calc_aoa:
+            print("Calculating Area of Applicability...")
+            if self.trained_set.Xy_imputed is not None:
+                x_cols = self.trained_set.Xy_imputed.X.cols
+                train = self.trained_set.Xy_imputed.df[x_cols]
+            else:
+                train = self.trained_set.X
 
-        if self.new_data_imputed is not None:
-            print("Using imputed new data for AoA calculation")
-            new = self.new_data_imputed
-        else:
-            new = self.new_data
+            if self.new_data_imputed is not None:
+                print("Using imputed new data for AoA calculation")
+                new = self.new_data_imputed
+            else:
+                new = self.new_data
 
-        df["DI"], df["AOA"] = self.get_aoa(train=train, new=new, threshold=0.95)
-        df[f"{self.trained_set.y_name}_masked_aoa"] = df[self.trained_set.y_name].where(
-            df["AOA"] == 1
-        )
+            df["DI"], df["AOA"] = self.get_aoa(train=train, new=new, threshold=0.95)
+            df[f"{self.trained_set.y_name}_masked_aoa"] = df[
+                self.trained_set.y_name
+            ].where(df["AOA"] == 1)
+
         df["CoV"] = self.cov()
+
         return df
 
     def get_aoa(

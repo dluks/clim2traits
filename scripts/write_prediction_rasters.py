@@ -48,7 +48,11 @@ def pred_to_ds(
     predictor_set = Path(filename).stem.split("_predict")[0]
     trait_var = pred.columns[0].replace("_05deg", "") + f"_{num_to_str(resolution)}deg"
     trait_full_name = get_trait_name_from_data_name(trait_var)
-    masked_trait = pred.columns[4]
+    # only set masked_trait if it is present in the dataframe
+    if "AOA" in pred.columns:
+        masked_trait = pred.columns[4]
+    else:
+        masked_trait = ""
 
     ds = make_geocube(
         vector_data=pred,
@@ -59,12 +63,19 @@ def pred_to_ds(
 
     log = " (log-transformed)" if "_ln" in trait_var else ""
 
-    data_vars_description = (
-        "AOA: Area of Applicability; threshold = 0.95 of DI (Meyer and Pebesma, 2021)\n"
-        "COV: Coefficient of Variation\n"
-        "DI: Dissimilarity Index (Meyer and Pebesma, 2021)\n"
-        f"{trait_var}: Extrapolated trait value{log}"
-    )
+    # only include AOA and DI descriptions if they are present in the dataframe
+    if "AOA" in pred.columns and "DI" in pred.columns:
+        data_vars_description = (
+            "AOA: Area of Applicability; threshold = 0.95 of DI (Meyer and Pebesma, 2021)\n"
+            "COV: Coefficient of Variation\n"
+            "DI: Dissimilarity Index (Meyer and Pebesma, 2021)\n"
+            f"{trait_var}: Extrapolated trait value{log}"
+        )
+    else:
+        data_vars_description = (
+            "COV: Coefficient of Variation\n"
+            f"{trait_var}: Extrapolated trait value{log}"
+        )
 
     ds = ds.assign_attrs(
         creator_name="Daniel Lusk",
