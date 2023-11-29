@@ -1,5 +1,8 @@
 import argparse
 import json
+import multiprocessing as mp
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Optional, Union
 
@@ -17,7 +20,7 @@ def get_best_models(
     run_ids: Optional[list[str]] = None,
 ) -> tuple[list[pd.Series], list[pd.Series]]:
     """Get the best models for each trait from the training results"""
-    results = pd.read_csv("./results/training_results.csv").copy()
+    results = pd.read_csv("./results/training_results.csv.gz").copy()
 
     with open("trait_mapping.json", "r", encoding="utf-8") as f:
         trait_map = json.load(f)
@@ -80,11 +83,107 @@ def get_best_models(
     return (gbif_best_rows, splot_best_rows)
 
 
-if __name__ == "__main__":
+@dataclass
+class PredictionDirs:
+    """Class for storing prediction output directories"""
+
+    gbif: Path
+    splot: Path
+
+
+@dataclass
+class TrainedTraitInfo:
+    """Class for storing trait information"""
+
+    name: str
+    gbif_trained_set: TrainedSet
+    splot_trained_set: TrainedSet
+
+
+@dataclass
+class Tile:
+    """Class for storing tile information"""
+
+    path: Path
+    calc_aoa: bool = False
+
+    @cached_property
+    def df(self) -> gpd.GeoDataFrame:
+        """Return the tile as a GeoDataFrame"""
+        df = dgpd.read_parquet(self.path).compute().reset_index(drop=True)
+        # Remove columns containing "tiled" in the name (this is due to a bug in
+        # saved_tiled_collections.py)
+        df = df.loc[:, ~df.columns.str.contains("tiled")]
+        return df
+
+    @cached_property
+    def df_imputed(self) -> gpd.GeoDataFrame:
+        """Return the imputed tile as a GeoDataFrame"""
+        imputed_path = Path(f"{self.path.parent}_imputed", self.path.name)
+        return dgpd.read_parquet(imputed_path).compute().reset_index(drop=True)
+
+
+def predict_tile(
+    tile: Tile,
+    prediction_dirs: PredictionDirs,
+    trained_trait_info: TrainedTraitInfo,
+    overwrite: bool = False,
+) -> None:
+    """Predict a trait for a single tile"""
+    print(f"Trait: {trained_trait_info.name}\nTile: {tile.path.name}\n")
+    # Skip if tile is already fully predicted
+    if (
+        Path(prediction_dirs.gbif, tile.path.name).exists()
+        and Path(prediction_dirs.splot, tile.path.name).exists()
+        and not overwrite
+    ):
+        print(f"Already predicted for {tile.path.name}")
+        return
+
+    print(f"Predicting {tile.path.stem}...")
+
+    tile_pred_gbif = Prediction(
+        trained_set=trained_trait_info.gbif_trained_set,
+        new_data=tile.df,
+        new_data_imputed=tile.df_imputed,
+        calc_aoa=tile.calc_aoa,
+    )
+
+    tile_pred_splot = Prediction(
+        trained_set=trained_trait_info.splot_trained_set,
+        new_data=tile.df,
+        new_data_imputed=tile.df_imputed,
+        calc_aoa=tile.calc_aoa,
+    )
+
+    # Only predict if not already predicted
+    if not (prediction_dirs.gbif / tile.path.name).exists() or overwrite:
+        tile_pred_gbif_df = tile_pred_gbif.df
+        tile_pred_gbif_df.to_parquet(
+            prediction_dirs.gbif / tile.path.name,
+            compression="zstd",
+            compression_level=2,
+        )
+        print(f"GBIF predicted for {tile.path.stem}")
+
+    if not (prediction_dirs.splot / tile.path.name).exists() or overwrite:
+        tile_pred_splot_df = tile_pred_splot.df
+        tile_pred_splot_df.to_parquet(
+            prediction_dirs.splot / tile.path.name,
+            compression="zstd",
+            compression_level=2,
+        )
+        print(f"sPlot predicted for {tile.path.stem}")
+
+
+def main():
+    """Predict traits for new data"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--new", type=str)
     parser.add_argument("--new-imputed", type=str, default=None)
-    parser.add_argument("-r", "--res", type=float, default=0.5, help="Model resolution")
+    parser.add_argument(
+        "-r", "--model-res", type=float, default=0.5, help="Model resolution"
+    )
     parser.add_argument(
         "-p", "--pft", type=str, default="Shrub_Tree_Grass", help="Model PFT"
     )
@@ -93,9 +192,23 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--overwrite", action="store_true")
     parser.add_argument("--test-run", action="store_true")
     parser.add_argument("--trait-ids", nargs="+", type=int, default=None)
+    parser.add_argument(
+        "--aoa", action="store_true", help="Calculate AOA for predictions"
+    )
+    parser.add_argument(
+        "--num-procs",
+        type=int,
+        default=1,
+        help="Number of processes (> 1 will use multiprocessing; -1 will use all"
+        "available cores)",
+    )
+
     args = parser.parse_args()
 
-    gbif_best, splot_best = get_best_models(args.res, args.pft, args.run_ids)
+    if args.num_procs == -1:
+        args.num_procs = mp.cpu_count()
+
+    gbif_best, splot_best = get_best_models(args.model_res, args.pft, args.run_ids)
 
     for gbif_row, splot_row in zip(gbif_best, splot_best):
         # If trait_ids is not None, only predict for the specified trait ids
@@ -116,31 +229,29 @@ if __name__ == "__main__":
         trained_gbif = TrainedSet.from_results_row(gbif_row)
         trained_splot = TrainedSet.from_results_row(splot_row)
 
-        splot_trait = trained_splot.y_name.split("sPlot_")[1]
-        gbif_trait = trained_gbif.y_name.split("GBIF_")[1]
-        trait_name = gbif_trait
-
-        gbif_dir_name = "GBIF_ln" if gbif_trait.endswith("_ln") else "GBIF"
-        splot_dir_name = "sPlot_ln" if trait_name.endswith("_ln") else "sPlot"
+        trait_name = trained_gbif.y_name.split("GBIF_")[1]
 
         new_data = Path(args.new)
 
+        model_dir = Path(
+            "./results/predictions", f"{num_to_str(args.model_res)}deg_models"
+        )
+
         pred_dir = Path(
-            "./results/predictions",
-            f"{num_to_str(args.res)}deg_models",
+            model_dir,
             new_data.stem,
             args.pft,
             trait_name,
         )
 
-        # TODO: Add model resolution and PFT to tiled directory pred_dir
         if args.tiled:
-            pred_dir = Path(f"./results/predictions/{new_data.name}/{trait_name}")
+            pred_dir = Path(model_dir, new_data.name, args.pft, trait_name)
 
         if args.test_run:
             pred_dir = Path(
-                "./results/predictions/test/",
-                f"{num_to_str(args.res)}deg_models",
+                model_dir.parent,
+                "test",
+                model_dir.name,
                 new_data.name,
                 args.pft,
                 trait_name,
@@ -152,67 +263,58 @@ if __name__ == "__main__":
         splot_pred_dir.mkdir(exist_ok=True, parents=True)
 
         if args.tiled:
-            tiles = new_data.glob("*.parq*")
+            tile_paths = new_data.glob("*.parq*")
 
             gbif_pred_dir = gbif_pred_dir / "tiled_5x5_deg"
             splot_pred_dir = splot_pred_dir / "tiled_5x5_deg"
             gbif_pred_dir.mkdir(exist_ok=True, parents=True)
             splot_pred_dir.mkdir(exist_ok=True, parents=True)
 
-            for tile in tiles:
-                print(f"Trait: {trait_name}\nTile: {tile.name}\n")
-                # Skip if tile is already fully predicted
-                if (
-                    Path(gbif_pred_dir, tile.name).exists()
-                    and Path(splot_pred_dir, tile.name).exists()
-                    and not args.overwrite
-                ):
-                    print(f"Already predicted for {tile.name}")
-                    continue
+            prediction_dirs = PredictionDirs(gbif=gbif_pred_dir, splot=splot_pred_dir)
 
-                print(f"Predicting {tile.stem}...")
-                new_df = dgpd.read_parquet(tile).compute().reset_index(drop=True)
+            trained_trait_info = TrainedTraitInfo(
+                name=trait_name,
+                gbif_trained_set=trained_gbif,
+                splot_trained_set=trained_splot,
+            )
 
-                # Remove columns containing "tiled" in the name (this is due to a bug in
-                # saved_tiled_collections.py)
-                new_df = new_df.loc[:, ~new_df.columns.str.contains("tiled")]
-
-                new_df_imp = (
-                    dgpd.read_parquet(f"{tile.parent}_imputed/{tile.name}")
-                    .compute()
-                    .reset_index(drop=True)
-                )
-
-                tile_pred_gbif = Prediction(
-                    trained_set=trained_gbif,
-                    new_data=new_df,
-                    new_data_imputed=new_df_imp,
-                )
-
-                tile_pred_splot = Prediction(
-                    trained_set=trained_splot,
-                    new_data=new_df,
-                    new_data_imputed=new_df_imp,
-                )
-
-                # Only predict if not already predicted
-                if not (gbif_pred_dir / tile.name).exists() or args.overwrite:
-                    tile_pred_gbif_df = tile_pred_gbif.df
-                    tile_pred_gbif_df.to_parquet(
-                        gbif_pred_dir / tile.name,
-                        compression="zstd",
-                        compression_level=2,
+            if not args.overwrite:
+                # Build list of tiles that have not already been predicted
+                tile_paths = [
+                    tile_path
+                    for tile_path in tile_paths
+                    if not (
+                        Path(prediction_dirs.gbif, tile_path.name).exists()
+                        and Path(prediction_dirs.splot, tile_path.name).exists()
                     )
-                    print(f"GBIF predicted for {tile.stem}")
+                ]
 
-                if not (splot_pred_dir / tile.name).exists() or args.overwrite:
-                    tile_pred_splot_df = tile_pred_splot.df
-                    tile_pred_splot_df.to_parquet(
-                        splot_pred_dir / tile.name,
-                        compression="zstd",
-                        compression_level=2,
+            if len(list(tile_paths)) == 0:
+                print(f"Already predicted for {trait_name}. Skipping...")
+                continue
+
+            if args.num_procs > 1:
+                with mp.Pool(args.num_procs) as pool:
+                    pool.starmap(
+                        predict_tile,
+                        [
+                            (
+                                Tile(tile_path, args.aoa),
+                                prediction_dirs,
+                                trained_trait_info,
+                                args.overwrite,
+                            )
+                            for tile_path in tile_paths
+                        ],
                     )
-                    print(f"sPlot predicted for {tile.stem}")
+            elif args.num_procs == 1:
+                for tile_path in tile_paths:
+                    predict_tile(
+                        Tile(tile_path, args.aoa),
+                        prediction_dirs,
+                        trained_trait_info,
+                        args.overwrite,
+                    )
         else:
             print(f"Predicting {trait_name}...")
 
@@ -227,11 +329,13 @@ if __name__ == "__main__":
                 trained_set=trained_gbif,
                 new_data=new_df,
                 new_data_imputed=new_df_imp,
+                calc_aoa=args.aoa,
             )
             pred_splot = Prediction(
                 trained_set=trained_splot,
                 new_data=new_df,
                 new_data_imputed=new_df_imp,
+                calc_aoa=args.aoa,
             )
 
             out_fn = f"{new_data.stem}_predict.parq"
@@ -253,3 +357,7 @@ if __name__ == "__main__":
                 print(f"sPlot predicted for {trait_name}")
             else:
                 print(f"Already predicted sPlot for {trait_name}. Skipping...")
+
+
+if __name__ == "__main__":
+    main()
