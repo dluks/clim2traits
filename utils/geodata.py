@@ -1,7 +1,9 @@
 ################################
 # Geodata utils
 ################################
+import json
 import os
+import re
 import sys
 from functools import reduce
 from pathlib import Path
@@ -438,7 +440,7 @@ def compare_gdf_to_grid(
     return corr
 
 
-def splot_correlation(
+def splot_correlation_old(
     gdf: gpd.GeoDataFrame, trait_id: str, trait_name: str, splot_set: str = "orig"
 ) -> float:
     """Get the correlation between trait predictions and sPlot maps for a given trait.
@@ -461,6 +463,79 @@ def splot_correlation(
     splot_corr = compare_gdfs(gdf, splot)
 
     return splot_corr
+
+
+def splot_correlations(
+    grid_res: Union[int, float], model_res: Union[int, float], pft: str
+) -> dict:
+    """Get the correlations between trait predictions and sPlot maps for all traits in
+    a given PFT and of a given resolution in degrees."""
+    predictor_dataset = "MOD09GA.061_ISRIC_soil_WC_BIO_VODCA"
+    nan_strat = "nan-strat=any_thr=0.5"
+    dataset_name = f"{predictor_dataset}_{grid_res:g}_deg_{nan_strat}"
+
+    dataset_dir_name = f"{'tiled_5x5_deg_' if grid_res == 0.01 else ''}{dataset_name}"
+
+    prediction_dir = Path(
+        "results/predictions",
+        f"{num_to_str(model_res)}deg_models",
+        dataset_dir_name,
+        pft,
+    )
+
+    corr_table = {}
+
+    for trait_dir in prediction_dir.glob("TRYgapfilled*"):
+        trait, corr = _trait_correlation(trait_dir, dataset_name, grid_res, pft)
+        corr_table[trait] = corr
+
+    return corr_table
+
+
+def _trait_correlation(
+    trait_dir: Path, dataset_name: str, grid_res: Union[int, float], pft: str
+) -> Tuple[str, float]:
+    """Get the correlation between trait predictions and sPlot maps for a given trait."""
+    trait = trait_dir.name
+    trait_id = get_trait_id_from_data_name(trait)
+    predict_name = (
+        "tiled_5x5_deg_merged.parq"
+        if grid_res == 0.01
+        else f"{dataset_name}_predict.parq"
+    )
+    trait_prediction_fn = trait_dir / "GBIF" / predict_name
+
+    if grid_res == 0.01:
+        trait_prediction = dgpd.read_parquet(trait_prediction_fn).compute()
+    else:
+        trait_prediction = gpd.read_parquet(trait_prediction_fn)
+
+    trait_prediction = trait_prediction.drop(
+        columns=[
+            "AOA",
+            "DI",
+            "CoV",
+            *trait_prediction.columns[trait_prediction.columns.str.contains("masked")],
+        ]
+    )
+
+    if trait.endswith("_ln"):
+        trait_prediction = back_transform_trait(trait_prediction)
+
+    splot_fn = list(
+        Path("GBIF_trait_maps/global_maps", pft, f"{num_to_str(grid_res)}deg").glob(
+            f"*_X{trait_id}_*.grd"
+        )
+    )[0]
+
+    splot = riox.open_rasterio(splot_fn, masked=True).sel(band=2)
+
+    if isinstance(splot, list):
+        raise ValueError("Multiple sPlot files found.")
+
+    splot = ds2gdf(splot, f"X{trait_id}").dropna(subset=[f"X{trait_id}"])
+    corr = compare_gdfs(trait_prediction, splot)
+    return f"X{trait_id}", corr
 
 
 def back_transform_trait(gdf: gpd.GeoDataFrame, drop: bool = True) -> gpd.GeoDataFrame:
@@ -566,3 +641,27 @@ def ds_to_netcdf(
     encoding = {var: {"zlib": True, "complevel": 9} for var in ds.data_vars}
 
     ds.to_netcdf(out_fn, encoding=encoding)
+
+
+def get_trait_id_from_data_name(data_name: str) -> str:
+    """Get trait id from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln -> 1080"""
+    trait_id = re.search(r"X\d+", data_name).group()
+    trait_id = trait_id.replace("X", "")
+    return trait_id
+
+
+def get_trait_name_from_trait_id(trait_id: str) -> str:
+    """Get trait name from trait id, e.g. 1080 -> Root length per root dry mass
+    (specific root length, SRL) (log-transformed)"""
+    with open("./trait_mapping.json", encoding="utf-8") as f:
+        mapping = json.load(f)
+        trait_name = mapping[trait_id]["long"]
+    return trait_name
+
+
+def get_trait_name_from_data_name(data_name: str) -> str:
+    """Get trait name from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln ->
+    Root length per root dry mass (specific root length, SRL) (log-transformed)"""
+    trait_id = get_trait_id_from_data_name(data_name)
+    trait_name = get_trait_name_from_trait_id(trait_id)
+    return trait_name

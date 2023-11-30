@@ -1,9 +1,7 @@
 import argparse
-import json
 import logging
 import multiprocessing
 import os
-import re
 from pathlib import Path
 from typing import Union
 
@@ -11,31 +9,7 @@ import geopandas as gpd
 import xarray as xr
 from geocube.api.core import make_geocube
 
-from utils.geodata import ds_to_netcdf, num_to_str
-
-
-def get_trait_id_from_data_name(data_name: str) -> str:
-    """Get trait id from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln -> 1080"""
-    trait_id = re.search(r"X\d+", data_name).group()
-    trait_id = trait_id.replace("X", "")
-    return trait_id
-
-
-def get_trait_name_from_trait_id(trait_id: str) -> str:
-    """Get trait name from trait id, e.g. 1080 -> Root length per root dry mass
-    (specific root length, SRL) (log-transformed)"""
-    with open("./trait_mapping.json", encoding="utf-8") as f:
-        mapping = json.load(f)
-        trait_name = mapping[trait_id]["long"]
-    return trait_name
-
-
-def get_trait_name_from_data_name(data_name: str) -> str:
-    """Get trait name from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln ->
-    Root length per root dry mass (specific root length, SRL) (log-transformed)"""
-    trait_id = get_trait_id_from_data_name(data_name)
-    trait_name = get_trait_name_from_trait_id(trait_id)
-    return trait_name
+from utils.geodata import ds_to_netcdf, get_trait_name_from_data_name, num_to_str
 
 
 def pred_to_ds(
