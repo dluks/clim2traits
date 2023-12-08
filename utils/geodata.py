@@ -13,9 +13,12 @@ import dask_geopandas as dgpd
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import rasterio as rio
 import rioxarray as riox
 import xarray as xr
 from rasterio.enums import Resampling
+from rasterio.transform import from_origin
+from tqdm import tqdm
 
 NPARTITIONS = os.cpu_count()
 
@@ -644,7 +647,7 @@ def ds_to_netcdf(
 
 
 def get_trait_id_from_data_name(data_name: str) -> str:
-    """Get trait id from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln -> 1080"""
+    """Get trait id from data name, e.g. GBIF_TRYgapfille   d_X1080_05deg_mean_ln -> 1080"""
     trait_id = re.search(r"X\d+", data_name).group()
     trait_id = trait_id.replace("X", "")
     return trait_id
@@ -665,3 +668,68 @@ def get_trait_name_from_data_name(data_name: str) -> str:
     trait_id = get_trait_id_from_data_name(data_name)
     trait_name = get_trait_name_from_trait_id(trait_id)
     return trait_name
+
+
+def rasterize_points(
+    points: np.ndarray, res: Union[int, float], bbox: tuple
+) -> np.ndarray:
+    """Rasterize points into a grid with a given resolution.
+
+    Args:
+        points (np.ndarray): Points to rasterize, with columns (x, y, value) (for
+            geographic coordinates, use (lon, lat, value))
+        res (Union[int, float]): Resolution of the grid
+        bbox (tuple): Bounding box of the grid
+
+    Returns:
+        np.ndarray: Rasterized grid
+    """
+    width = int((bbox[2] - bbox[0]) / res)
+    height = int((bbox[3] - bbox[1]) / res)
+
+    rast = np.zeros((height, width), dtype=np.float32)
+    count_array = np.zeros_like(rast)
+
+    for x, y, value in tqdm(points):
+        col = int((x - bbox[0]) / res)
+        row = int((bbox[3] - y) / res)
+        rast[row, col] += value
+        count_array[row, col] += 1
+
+    # Avoid division by zero
+    count_array[count_array == 0] = 1
+
+    # Calculate the average
+    rast = rast / count_array
+
+    return rast
+
+
+def write_raster(
+    raster: np.ndarray, res: Union[int, float], bbox: tuple, filename: os.PathLike
+) -> None:
+    """Write a raster to a GeoTIFF file.
+
+    Args:
+        raster (np.ndarray): Raster matrix to write
+        res (Union[int, float]): Resolution of the raster
+        bbox (tuple): Bounding box of the raster
+        filename (os.PathLike): Path to the output file
+    """
+    width = int((bbox[2] - bbox[0]) / res)
+    height = int((bbox[3] - bbox[1]) / res)
+
+    with rio.open(
+        filename,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        nodata=0,
+        count=1,
+        dtype=rio.float32,
+        crs="EPSG:4326",
+        transform=from_origin(bbox[0], bbox[3], res, res),
+        compress="zstd",
+    ) as dst:
+        dst.write(raster, 1)
