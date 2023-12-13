@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 ### CONFIG
 RANGE_05 = True
 PFTs = ["Shrub_Tree_Grass", "Shrub_Tree", "Grass"]
-RES = 0.01
+RES = 0.2
 BBOX = (-180, -60, 180, 90)
 
 
