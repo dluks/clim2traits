@@ -380,11 +380,11 @@ def fill_holes(ds: xr.Dataset, method: str = "cubic") -> xr.Dataset:
     """Fills holes in a dataset."""
     ds = ds.rio.interpolate_na(method=method)
     ds = clip_to_land(ds)
-    ds = pad_raster(ds)
+    ds = pad_ds(ds)
     return ds
 
 
-def pad_raster(
+def pad_ds(
     ds: xr.Dataset, minx: int = -180, miny: int = -60, maxx: int = 180, maxy: int = 90
 ) -> xr.Dataset:
     """Pads a raster dataset to the full extent of the globe."""

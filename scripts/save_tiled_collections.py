@@ -9,7 +9,7 @@ import rioxarray as riox
 import xarray as xr
 
 from utils.datasets import CollectionName, Dataset, Unit
-from utils.geodata import merge_gdfs, pad_raster
+from utils.geodata import merge_gdfs, pad_ds
 
 # TODO: fix bug that adds the tiled parent directory name (e.g. "tiled_5x5_deg...") as
 # a column to the final GeoDataFrames
@@ -32,10 +32,10 @@ def build_dataframe(ds: xr.Dataset, tile: tuple) -> gpd.GeoDataFrame:
     res = ds.rio.resolution()[0]
     if ds.x.min() > tile[0] + (res / 2) or ds.x.max() < tile[2] - (res / 2):
         print(f"Padding dataset {ds.data_vars}...")
-        ds = pad_raster(ds)
+        ds = pad_ds(ds)
     elif ds.y.min() > tile[1] + (res / 2) or ds.y.max() < tile[3] - (res / 2):
         print(f"Padding dataset {ds.data_vars}...")
-        ds = pad_raster(ds)
+        ds = pad_ds(ds)
 
     # Next slice the datasets according to the current tile
     ds = ds.sel(x=slice(tile[0], tile[2]), y=slice(tile[3], tile[1]))

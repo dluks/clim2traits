@@ -25,7 +25,7 @@ from utils.geodata import (
     fill_holes,
     get_epsg,
     merge_gdfs,
-    pad_raster,
+    pad_ds,
 )
 from utils.training import TrainingConfig, TrainingRun
 from utils.visualize import plot_distributions, plot_raster_maps
@@ -731,7 +731,7 @@ def resample_file(fpath, params: dict) -> None:
 def clip_and_pad_dataset(ds: xr.Dataset) -> xr.Dataset:
     """Clips and pads a dataset to the global extent."""
     ds = clip_to_land(ds)
-    ds = pad_raster(ds)
+    ds = pad_ds(ds)
 
     return ds
 
