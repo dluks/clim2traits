@@ -9,8 +9,6 @@ from functools import reduce
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
-import dask_geopandas as dgpd
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio as rio
@@ -19,6 +17,11 @@ import xarray as xr
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from tqdm import tqdm
+
+os.environ["USE_PYGEOS"] = "0"
+
+import dask_geopandas as dgpd
+import geopandas as gpd
 
 NPARTITIONS = os.cpu_count()
 
@@ -656,9 +659,17 @@ def ds_to_netcdf(
         print(e)
         sys.exit()
 
+    if ds.rio.crs is None:
+        raise ValueError("Dataset does not have a CRS.")
+
     encoding = {var: {"zlib": True, "complevel": 9} for var in ds.data_vars}
 
-    ds.to_netcdf(out_fn, encoding=encoding)
+    mode = "w"
+
+    if Path(out_fn).exists():
+        mode = "a"
+
+    ds.to_netcdf(out_fn, mode=mode, encoding=encoding)
 
 
 def get_trait_id_from_data_name(data_name: str) -> str:
@@ -748,3 +759,36 @@ def write_raster(
         compress="zstd",
     ) as dst:
         dst.write(raster, 1)
+
+
+def pack_ds(ds: xr.Dataset) -> xr.Dataset:
+    """Pack a dataset to save memory."""
+
+    if ds.rio.crs is None:
+        raise ValueError("Dataset does not have a CRS.")
+
+    NODATA = -(2**15)
+
+    with xr.set_options(keep_attrs=True):
+        for dv in ds.data_vars:
+            if np.issubdtype(ds[dv].dtype, np.floating):
+                min_val = ds[dv].min().item()
+                max_val = ds[dv].max().item()
+
+                scale_factor = (max_val - min_val) / (2**16 - 2)
+                scale_factor = np.array([scale_factor]).astype(np.float32)[0]
+
+                offset = (max_val + min_val) / 2
+                offset = np.array([offset]).astype(np.float32)[0]
+
+                ds[dv] = (ds[dv] - offset) / scale_factor
+                ds[dv] = ds[dv].fillna(NODATA)
+                ds[dv] = ds[dv].rio.write_nodata(NODATA, encoded=True)
+
+                ds[dv] = ds[dv].astype(np.int16)
+
+                ds[dv].attrs["scale_factor"] = scale_factor
+                ds[dv].attrs["add_offset"] = offset
+                ds[dv].attrs["_FillValue"] = NODATA
+
+    return ds

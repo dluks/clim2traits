@@ -9,8 +9,17 @@ from typing import Union
 import geopandas as gpd
 import xarray as xr
 from geocube.api.core import make_geocube
+from rioxarray.merge import merge_datasets
+from shapely.geometry import Polygon
 
-from utils.geodata import ds_to_netcdf, get_trait_name_from_data_name, num_to_str
+from utils.geodata import (
+    ds_to_gtiff,
+    ds_to_netcdf,
+    get_trait_name_from_data_name,
+    num_to_str,
+    pack_ds,
+    pad_ds,
+)
 
 
 def get_trait_from_gdf(gdf: gpd.GeoDataFrame, resolution: Union[float, int]) -> str:
@@ -23,7 +32,16 @@ def gdf_to_final_ds(fn: Union[str, os.PathLike], resolution: Union[int, float]):
     fn = Path(fn)
 
     gdf = gpd.read_parquet(fn)
-    gdf = gdf.rename(columns={"CoV": "COV"})
+    trait_var = get_trait_from_gdf(gdf, resolution)
+    trait_full_name = get_trait_name_from_data_name(trait_var)
+
+    gdf = gdf.rename(columns={"CoV": "COV", gdf.columns[0]: trait_var})
+
+    extent = Polygon.from_bounds(*(-180, -60, 180, 90))
+
+    if fn.stem.startswith("tile"):
+        extent = [int(x) for x in fn.stem.split("_")[1:]]
+        extent = Polygon.from_bounds(*extent)
 
     if "AOA" in gdf.columns:
         masked_trait = gdf.columns[4]
@@ -33,37 +51,40 @@ def gdf_to_final_ds(fn: Union[str, os.PathLike], resolution: Union[int, float]):
     ds = make_geocube(
         gdf,
         measurements=gdf.columns.difference(["geometry", masked_trait]).tolist(),
-        resolution=(resolution, -resolution),
+        resolution=(-resolution, resolution),
         output_crs="EPSG:4326",
+        geom=extent,
     )
 
-    trait_var = get_trait_from_gdf(gdf, resolution)
-    trait_full_name = get_trait_name_from_data_name(trait_var)
+    ds = ds.rio.write_crs("epsg:4326")
+    ds = ds.assign_attrs({"crs": ds.rio.crs.to_string()})
+    ds = pad_ds(ds)
+
+    for dv in ds.data_vars:
+        if str(dv) == "AOA":
+            ds[dv] = ds[dv].fillna(0)
+            ds[dv] = ds[dv].astype("int16")
+            ds[dv].attrs["long_name"] = "Area of Applicability"
+        if str(dv) == "DI":
+            ds[dv] = ds[dv].astype("float32")
+            ds[dv].attrs["long_name"] = "Dissimilarity Index"
+        if str(dv) == "COV":
+            ds[dv] = ds[dv].astype("float32")
+            ds[dv].attrs["long_name"] = "Coefficient of Variation"
+        if "TRYgapfilled" in str(dv):
+            ds[dv] = ds[dv].astype("float32")
+            ds[dv].attrs["long_name"] = trait_full_name
+
+    ds = pack_ds(ds)
 
     log = " (log-transformed)" if "_ln" in trait_var else ""
-
-    # only include AOA and DI descriptions if they are present in the dataframe
-    if "AOA" in gdf.columns and "DI" in gdf.columns:
-        data_vars_description = (
-            "AOA: Area of Applicability; threshold = 0.95 of DI (Meyer and Pebesma, 2021)\n"
-            "COV: Coefficient of Variation\n"
-            "DI: Dissimilarity Index (Meyer and Pebesma, 2021)\n"
-            f"{trait_var}: Extrapolated trait value{log}"
-        )
-    else:
-        data_vars_description = (
-            "COV: Coefficient of Variation\n"
-            f"{trait_var}: Extrapolated trait value{log}"
-        )
 
     ds = ds.assign_attrs(
         creator_name="Daniel Lusk",
         contact="lusk@posteo.net",
         trait=trait_var,
         trait_description=f"{trait_full_name}{log}",
-        data_vars_description=data_vars_description,
         version="0.1",
-        nodata=-9999,
     )
 
     logging.info("Converted %s", fn.name)
@@ -89,8 +110,8 @@ def pred_to_ds(
         else:
             datasets = [gdf_to_final_ds(fn, resolution) for fn in filenames]
 
-        logging.info("Concatenating tile datasets...")
-        ds = xr.concat(datasets, dim="y")
+        logging.info("Merging datasets...")
+        ds = merge_datasets(datasets)
     else:
         predictor_set = Path(filenames[0]).stem.split("_predict")[0]
         ds = gdf_to_final_ds(filenames[0], resolution)
@@ -103,13 +124,19 @@ def pred_to_ds(
 
 
 def write_pred_ds(ds, out_fn: Union[str, os.PathLike], dry_run: bool = False):
-    """Write a prediction Dataset to a NetCDF file."""
+    """Write a prediction Dataset."""
+    out_fn = Path(out_fn)
 
     if dry_run:
         logging.info("Wrote %s (DRY-RUN)", out_fn)
         return
 
-    ds_to_netcdf(ds, out_fn)
+    if out_fn.suffix == ".nc":
+        ds_to_netcdf(ds, out_fn)
+    elif out_fn.suffix == ".tif":
+        ds_to_gtiff(ds, out_fn)
+    else:
+        raise ValueError(f"Unknown file extension: {out_fn.suffix}")
     logging.info("Wrote %s", out_fn)
     return
 
@@ -129,55 +156,40 @@ def pred_to_ds_and_write(
     overwrite: bool = False,
 ):
     """Writes a prediction GDF to a NetCDF file."""
+
     if tiled:
-        quadrants = [
-            {"bounds": (-180, 0, 0, 90), "tile_fns": []},
-            {"bounds": (0, 0, 180, 90), "tile_fns": []},
-            {"bounds": (-180, -90, 0, 0), "tile_fns": []},
-            {"bounds": (0, -90, 180, 0), "tile_fns": []},
-        ]
+        tile_fns = sorted(list(Path(filename).glob("*.parq")))
 
-        for quadrant in quadrants:
-            tile_fns = sorted(list(Path(filename).glob("*.parq")))
-            for fn in tile_fns:
-                xmin, ymin, xmax, ymax = [int(x) for x in fn.stem.split("_")[1:]]
-                if (
-                    xmin >= quadrant["bounds"][0]
-                    and ymin >= quadrant["bounds"][1]
-                    and xmax <= quadrant["bounds"][2]
-                    and ymax <= quadrant["bounds"][3]
-                ):
-                    quadrant["tile_fns"].append(fn)
+        trait_var = get_trait_from_gdf(gpd.read_parquet(tile_fns[0]), resolution)
 
-            trait_var = get_trait_from_gdf(
-                gpd.read_parquet(quadrant["tile_fns"][0]), resolution
-            )
-            quad_out_dir = Path(out_dir, trait_var)
-            if not dry_run:
-                quad_out_dir.mkdir(parents=True, exist_ok=True)
+        if not overwrite:
+            out_fn = Path(out_dir, f"{trait_var}.nc")
+            if out_fn.exists():
+                logging.info("%s already exists. Skipping...", out_fn)
+                return
 
-            out_fn = Path(
-                quad_out_dir,
-                f"{trait_var}_{bounds_to_str(quadrant['bounds'])}.nc",
-            )
+        ds = pred_to_ds(tile_fns, resolution, tiled, num_procs)
+        # logging.info("Writing %s...", out_fn)
+        # write_pred_ds(ds, out_fn, dry_run=dry_run)
 
-            if not overwrite and out_fn.exists():
-                logging.info("Skipping %s (already exists)", out_fn)
-                continue
-
-            ds = pred_to_ds(quadrant["tile_fns"], resolution, tiled, num_procs)
-
-            logging.info("Writing %s...", out_fn)
-            write_pred_ds(ds, out_fn, dry_run=dry_run)
-
-            del ds
-            gc.collect()
     else:
         ds = pred_to_ds([filename], resolution)
-        out_fn = Path(out_dir, f"{ds.attrs['trait']}.nc")
 
-        logging.info("Writing %s...", out_fn)
-        write_pred_ds(ds, out_fn, dry_run=dry_run)
+    out_fn = Path(out_dir, f"{ds.attrs['trait']}.nc")
+
+    if not overwrite:
+        if out_fn.exists():
+            logging.info("%s already exists. Skipping...", out_fn)
+            return
+
+    logging.info("Writing %s...", out_fn)
+
+    write_pred_ds(ds, out_fn, dry_run=dry_run)
+
+    ds.close()
+
+    del ds
+    gc.collect()
 
 
 def main():
@@ -229,7 +241,9 @@ def main():
         if args.tiled
         else Path(dataset).glob("*/*/*.parq")
     )
-    parent_dir = Path(f"maps/{args.pft}/05deg_models/{num_to_str(args.resolution)}deg")
+    parent_dir = Path(
+        "maps", args.pft, "05deg_models", f"{num_to_str(args.resolution)}deg"
+    )
 
     if args.verbose or args.dry_run:
         logging.basicConfig(
