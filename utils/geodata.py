@@ -470,7 +470,7 @@ def splot_correlation_old(
 
 def splot_correlations(
     grid_res: Union[int, float], model_res: Union[int, float], pft: str
-) -> dict:
+) -> Tuple[dict, dict]:
     """Get the correlations between trait predictions and sPlot maps for all traits in
     a given PFT and of a given resolution in degrees."""
     predictor_dataset = "MOD09GA.061_ISRIC_soil_WC_BIO_VODCA"
@@ -486,52 +486,58 @@ def splot_correlations(
         pft,
     )
 
-    corr_table = {}
+    corr_table_gbif = {}
+    corr_table_splot = {}
 
-    for trait_dir in prediction_dir.glob("TRYgapfilled*"):
-        trait, corr = _trait_correlation(trait_dir, dataset_name, grid_res, pft)
-        corr_table[trait] = corr
+    for trait_dir in tqdm(list(prediction_dir.glob("TRYgapfilled*/GBIF"))):
+        trait, corr = _trait_correlation(trait_dir, grid_res, pft)
+        corr_table_gbif[trait] = corr
 
-    return corr_table
+    for trait_dir in tqdm(list(prediction_dir.glob("TRYgapfilled*/sPlot"))):
+        trait, corr = _trait_correlation(trait_dir, grid_res, pft)
+        corr_table_splot[trait] = corr
+
+    return corr_table_gbif, corr_table_splot
 
 
 def _trait_correlation(
-    trait_dir: Path, dataset_name: str, grid_res: Union[int, float], pft: str
+    trait_dir: Path, grid_res: Union[int, float], pft: str
 ) -> Tuple[str, float]:
     """Get the correlation between trait predictions and sPlot maps for a given trait."""
-    trait = trait_dir.name
+    trait = trait_dir.parent.name
     trait_id = get_trait_id_from_data_name(trait)
-    predict_name = (
-        "tiled_5x5_deg_merged.parq"
-        if grid_res == 0.01
-        else f"{dataset_name}_predict.parq"
-    )
-    trait_prediction_fn = trait_dir / "GBIF" / predict_name
+    trait_prediction_fn = list(trait_dir.glob("*.parq"))[0]
 
     if grid_res == 0.01:
-        trait_prediction = dgpd.read_parquet(trait_prediction_fn).compute()
+        cols = dgpd.read_parquet(trait_prediction_fn).columns.values
+        trait_prediction = dgpd.read_parquet(
+            trait_prediction_fn, columns=cols[:2]
+        ).compute()
     else:
-        trait_prediction = gpd.read_parquet(trait_prediction_fn)
+        cols = gpd.read_parquet(trait_prediction_fn).columns.values
+        trait_prediction = gpd.read_parquet(trait_prediction_fn, columns=cols[:2])
 
-    trait_prediction = trait_prediction.drop(
-        columns=[
-            "AOA",
-            "DI",
-            "CoV",
-            *trait_prediction.columns[trait_prediction.columns.str.contains("masked")],
-        ]
-    )
+    # trait_prediction = trait_prediction.drop(
+    #     columns=[
+    #         "AOA",
+    #         "DI",
+    #         "CoV",
+    #         *trait_prediction.columns[trait_prediction.columns.str.contains("masked")],
+    #     ]
+    # )
 
     if trait.endswith("_ln"):
         trait_prediction = back_transform_trait(trait_prediction)
 
-    splot_fn = list(
-        Path("GBIF_trait_maps/global_maps", pft, f"{num_to_str(grid_res)}deg").glob(
-            f"*_X{trait_id}_*.grd"
-        )
-    )[0]
+    splot_dir = Path("GBIF_trait_maps/global_maps", pft, f"{num_to_str(grid_res)}deg")
 
-    splot = riox.open_rasterio(splot_fn, masked=True).sel(band=2)
+    if grid_res >= 0.5:
+        splot_fn = list(splot_dir.glob(f"*_X{trait_id}_*.grd"))[0]
+        splot = riox.open_rasterio(splot_fn, masked=True).sel(band=2)
+    else:
+        splot_dir = splot_dir / "05_range"
+        splot_fn = list(splot_dir.glob(f"*_X{trait_id}_*.tif"))[0]
+        splot = riox.open_rasterio(splot_fn, masked=True).squeeze()
 
     if isinstance(splot, list):
         raise ValueError("Multiple sPlot files found.")
@@ -605,7 +611,7 @@ def num_to_str(number: Union[int, float]) -> str:
     return f"{np.abs(number):g}".replace(".", "")
 
 
-def ds_to_raster(
+def ds_to_gtiff(
     ds: Union[xr.Dataset, xr.DataArray], out_fn: Union[str, os.PathLike]
 ) -> None:
     """Writes a rioxarray dataset to a raster."""
@@ -616,18 +622,27 @@ def ds_to_raster(
         print(e)
         sys.exit()
 
+    assert ds.rio.crs is not None, "Dataset does not have a CRS."
+
     write_args = {
-        "compress": "zstd",
         "tiled": True,
-        "blockxsize": 256,
-        "blockysize": 256,
+        "compress": "zstd",
         "predictor": 2,
-        "num_threads": 20,
-        "windowed": True,
+        "num_threads": os.cpu_count(),
+        "windowed": False,
         "compute": False,
     }
 
-    ds.rio.to_raster(out_fn, **write_args)
+    ds.rio.to_raster(
+        out_fn,
+        tags={
+            "compression": "zstd",
+            "compression_predictor": 2,
+            "resolution": 0.01,
+            "resolution_unit": "degree",
+        },
+        **write_args,
+    )
 
 
 def ds_to_netcdf(
