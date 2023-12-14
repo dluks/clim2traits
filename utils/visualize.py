@@ -1,12 +1,12 @@
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
 import cartopy.crs as ccrs
 import dask.array as da
-import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -16,6 +16,10 @@ import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.pyplot import colorbar
+
+os.environ["USE_PYGEOS"] = "0"
+
+import geopandas as gpd
 
 
 def plot_raster_maps(fns: list, ncols: int):
@@ -354,3 +358,105 @@ def plot_all_trait_obs_pred(trait_dirs, mapping=None):
     # Clean up empty subplots
     for i in range(num_traits, num_rows * num_cols):
         fig.delaxes(axs[i])
+
+
+def plot_splot_correlations(df: pd.DataFrame, pft: str):
+    """Plot sPlot correlations for GBIF and sPlot extrapolations for the given PFT"""
+    idx = pd.IndexSlice
+    df = df.loc[idx[:, pft], :]
+
+    # Now hide the "PFT" index (but don't drop it)
+    df.index = df.index.droplevel(1)
+
+    # Set the plot style
+    sns.set_theme(style="whitegrid")
+    custom_params = {"axes.spines.right": False, "axes.spines.top": False}
+    sns.set_theme(style="ticks", rc=custom_params)
+
+    # Create two subplots
+    fig, axs = plt.subplots(1, 2, figsize=(20, 25), dpi=150)
+    df = df.sort_index(ascending=False)
+    text_x = 1.02
+
+    # Define colors
+    # colors = plt.cm.Paired(np.linspace(0, 1, len(stg.index.get_level_values(0).unique())))
+    # use sns instead (e.g. sns.hls_palette(h=.5))
+    colors = sns.color_palette(n_colors=len(df.index.get_level_values(0).unique()))
+
+    with open("trait_mapping.json", "r", encoding="utf-8") as f:
+        trait_mapping = json.load(f)
+
+    # Loop over each trait
+    for color, trait in zip(colors, df.index.get_level_values(0).unique()):
+        # Select data for the current trait
+        trait_data = df.loc[trait]
+
+        trait_short = trait_mapping[trait.split("X")[-1]]["short"]
+
+        # If trait_short exceeds 12 characters split it into two lines but don't split in the middle of a word
+        if len(trait_short) > 12:
+            split_idx = trait_short.rfind(" ", 0, 12)
+            trait_short = trait_short[:split_idx] + "\n" + trait_short[split_idx + 1 :]
+
+        # Plot GBIF data with dotted line and circular markers
+        gbif_data = trait_data.xs("GBIF", axis=0, level=1)
+        axs[0].plot(
+            gbif_data,
+            linestyle="-",
+            color=color,
+            label=f"{trait} GBIF",
+            marker="o",
+            markeredgecolor="white",
+            markeredgewidth=1.0,
+        )
+        axs[0].text(
+            x=text_x,
+            y=gbif_data.iloc[0],
+            s=trait_short,
+            ha="left",
+            va="center",
+            color=color,
+            transform=axs[0].get_yaxis_transform(),
+        )
+        axs[0].set_title("GBIF")
+
+        # Plot sPlot data with solid line and circular markers
+        splot_data = trait_data.xs("sPlot", axis=0, level=1)
+        axs[1].plot(
+            splot_data,
+            linestyle="-",
+            color=color,
+            label=f"{trait} sPlot",
+            marker="o",
+            markeredgecolor="white",
+            markeredgewidth=1.0,
+        )
+        axs[1].text(
+            x=text_x,
+            y=splot_data.iloc[0],
+            s=trait_short,
+            ha="left",
+            va="center",
+            color=color,
+            transform=axs[1].get_yaxis_transform(),
+        )
+        axs[1].set_title("sPlot")
+
+    # Set labels and reverse x-axis
+    for ax in axs:
+        ax.set_xlabel("Resolution ($\degree$)")
+        ax.set_ylabel("$r$")
+        ax.invert_xaxis()
+
+    # Remove the gridlines
+    axs[0].grid(False)
+    axs[1].grid(False)
+
+    # Add a title to the figure overall
+    fig.suptitle(
+        f"sPlot correlations for GBIF and sPlot extrapolations for {pft} PFT",
+        fontsize=16,
+    )
+
+    # Show the plots
+    plt.show()
