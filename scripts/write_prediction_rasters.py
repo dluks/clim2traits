@@ -4,7 +4,7 @@ import logging
 import multiprocessing
 import os
 from pathlib import Path
-from typing import Union
+from typing import Sequence, Union
 
 import geopandas as gpd
 import xarray as xr
@@ -93,7 +93,7 @@ def gdf_to_final_ds(fn: Union[str, os.PathLike], resolution: Union[int, float]):
 
 
 def pred_to_ds(
-    filenames: list[Union[str, os.PathLike]],
+    filenames: Sequence[Union[str, os.PathLike]],
     resolution: Union[int, float],
     tiled: bool = False,
     num_procs: int = 1,
