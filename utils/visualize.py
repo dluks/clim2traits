@@ -13,6 +13,7 @@ import pandas as pd
 import seaborn as sns
 import spacv
 import xarray as xr
+from adjustText import adjust_text
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.pyplot import colorbar
@@ -373,10 +374,9 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
     custom_params = {"axes.spines.right": False, "axes.spines.top": False}
     sns.set_theme(style="ticks", rc=custom_params)
 
-    # Create two subplots
     fig, axs = plt.subplots(1, 2, figsize=(20, 25), dpi=150)
     df = df.sort_index(ascending=False)
-    text_x = 1.02
+    text_x = 0.98
 
     # Define colors
     # colors = plt.cm.Paired(np.linspace(0, 1, len(stg.index.get_level_values(0).unique())))
@@ -386,6 +386,14 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
     with open("trait_mapping.json", "r", encoding="utf-8") as f:
         trait_mapping = json.load(f)
 
+    x_positions = [text_x] * len(df.index.get_level_values(0).unique())
+
+    y_positions_gbif = []
+    y_positions_splot = []
+
+    labels = []
+    label_colors = []
+
     # Loop over each trait
     for color, trait in zip(colors, df.index.get_level_values(0).unique()):
         # Select data for the current trait
@@ -393,13 +401,12 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
 
         trait_short = trait_mapping[trait.split("X")[-1]]["short"]
 
-        # If trait_short exceeds 12 characters split it into two lines but don't split in the middle of a word
-        if len(trait_short) > 12:
-            split_idx = trait_short.rfind(" ", 0, 12)
-            trait_short = trait_short[:split_idx] + "\n" + trait_short[split_idx + 1 :]
-
         # Plot GBIF data with dotted line and circular markers
         gbif_data = trait_data.xs("GBIF", axis=0, level=1)
+        y_positions_gbif.append(gbif_data.iloc[0])
+        labels.append(trait_short)
+        label_colors.append(color)
+
         axs[0].plot(
             gbif_data,
             linestyle="-",
@@ -409,19 +416,12 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
             markeredgecolor="white",
             markeredgewidth=1.0,
         )
-        axs[0].text(
-            x=text_x,
-            y=gbif_data.iloc[0],
-            s=trait_short,
-            ha="left",
-            va="center",
-            color=color,
-            transform=axs[0].get_yaxis_transform(),
-        )
         axs[0].set_title("GBIF")
 
         # Plot sPlot data with solid line and circular markers
         splot_data = trait_data.xs("sPlot", axis=0, level=1)
+        y_positions_splot.append(splot_data.iloc[0])
+
         axs[1].plot(
             splot_data,
             linestyle="-",
@@ -431,16 +431,66 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
             markeredgecolor="white",
             markeredgewidth=1.0,
         )
-        axs[1].text(
-            x=text_x,
-            y=splot_data.iloc[0],
-            s=trait_short,
-            ha="left",
+        axs[1].set_title("sPlot")
+
+    texts_gbif = []
+    for x_position, y_position, label, color in zip(
+        x_positions, y_positions_gbif, labels, label_colors
+    ):
+        text = axs[0].text(
+            x_position,
+            y_position,
+            label,
+            ha="right",
             va="center",
             color=color,
-            transform=axs[1].get_yaxis_transform(),
         )
-        axs[1].set_title("sPlot")
+        texts_gbif.append(text)
+
+    # add space between plots
+    plt.subplots_adjust(wspace=0.5)
+
+    texts_splot = []
+    for x_position, y_position, label, color in zip(
+        x_positions, y_positions_splot, labels, label_colors
+    ):
+        text = axs[1].text(
+            x_position,
+            y_position,
+            label,
+            ha="right",
+            va="center",
+            color=color,
+        )
+        texts_splot.append(text)
+
+    adjust_text_kwargs = {
+        "force_text": (0, 0.5),
+        "only_move": {"text": "y", "static": "y", "explode": "y", "pull": "y"},
+    }
+
+    adjust_text(
+        texts_gbif,
+        ax=axs[0],
+        **adjust_text_kwargs,
+    )
+
+    adjust_text(
+        texts_splot,
+        ax=axs[1],
+        **adjust_text_kwargs,
+    )
+
+    # Readjust the x-position of the text since adjust_text doesn't seem to respect the
+    # only_move parameter and still moves the text in the x-direction
+    def _reset_text_x(texts, x_position, ax):
+        for text in texts:
+            text.set_ha("left")
+            text.set_x(x_position)
+            text.set_transform(ax.get_yaxis_transform())
+
+    _reset_text_x(texts_gbif, text_x, axs[0])
+    _reset_text_x(texts_splot, text_x, axs[1])
 
     # Set labels and reverse x-axis
     for ax in axs:
@@ -457,6 +507,9 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
         f"sPlot correlations for GBIF and sPlot extrapolations for {pft} PFT",
         fontsize=16,
     )
+
+    # remove ax 1
+    # fig.delaxes(axs[1])
 
     # Show the plots
     plt.show()
