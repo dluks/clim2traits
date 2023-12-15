@@ -493,23 +493,23 @@ def splot_correlations(
     corr_table_splot = {}
 
     for trait_dir in tqdm(list(prediction_dir.glob("TRYgapfilled*/GBIF"))):
-        trait, corr = _trait_correlation(trait_dir, grid_res, pft)
+        trait, corr = trait_correlation(trait_dir, grid_res, pft)
         corr_table_gbif[trait] = corr
 
     for trait_dir in tqdm(list(prediction_dir.glob("TRYgapfilled*/sPlot"))):
-        trait, corr = _trait_correlation(trait_dir, grid_res, pft)
+        trait, corr = trait_correlation(trait_dir, grid_res, pft)
         corr_table_splot[trait] = corr
 
     return corr_table_gbif, corr_table_splot
 
 
-def _trait_correlation(
-    trait_dir: Path, grid_res: Union[int, float], pft: str
+def trait_correlation(
+    trait_pred_dir: Path, grid_res: Union[int, float], pft: str
 ) -> Tuple[str, float]:
     """Get the correlation between trait predictions and sPlot maps for a given trait."""
-    trait = trait_dir.parent.name
+    trait = trait_pred_dir.parent.name
     trait_id = get_trait_id_from_data_name(trait)
-    trait_prediction_fn = list(trait_dir.glob("*.parq"))[0]
+    trait_prediction_fn = list(trait_pred_dir.glob("*.parq"))[0]
 
     if grid_res == 0.01:
         cols = dgpd.read_parquet(trait_prediction_fn).columns.values
@@ -520,33 +520,24 @@ def _trait_correlation(
         cols = gpd.read_parquet(trait_prediction_fn).columns.values
         trait_prediction = gpd.read_parquet(trait_prediction_fn, columns=cols[:2])
 
-    # trait_prediction = trait_prediction.drop(
-    #     columns=[
-    #         "AOA",
-    #         "DI",
-    #         "CoV",
-    #         *trait_prediction.columns[trait_prediction.columns.str.contains("masked")],
-    #     ]
-    # )
-
     if trait.endswith("_ln"):
         trait_prediction = back_transform_trait(trait_prediction)
 
     splot_dir = Path("GBIF_trait_maps/global_maps", pft, f"{num_to_str(grid_res)}deg")
 
     if grid_res >= 0.5:
-        splot_fn = list(splot_dir.glob(f"*_X{trait_id}_*.grd"))[0]
-        splot = riox.open_rasterio(splot_fn, masked=True).sel(band=2)
+        splot_fn = list(splot_dir.glob(f"sPlot*_X{trait_id}_*.grd"))[0]
+        splot_ds = riox.open_rasterio(splot_fn, masked=True).sel(band=2)
     else:
         splot_dir = splot_dir / "05_range"
-        splot_fn = list(splot_dir.glob(f"*_X{trait_id}_*.tif"))[0]
-        splot = riox.open_rasterio(splot_fn, masked=True).squeeze()
+        splot_fn = list(splot_dir.glob(f"sPlot*_X{trait_id}_*.tif"))[0]
+        splot_ds = riox.open_rasterio(splot_fn, masked=True).squeeze()
 
-    if isinstance(splot, list):
+    if isinstance(splot_ds, list):
         raise ValueError("Multiple sPlot files found.")
 
-    splot = ds2gdf(splot, f"X{trait_id}").dropna(subset=[f"X{trait_id}"])
-    corr = compare_gdfs(trait_prediction, splot)
+    splot_df = ds2gdf(splot_ds, f"X{trait_id}")
+    corr = compare_gdfs(trait_prediction, splot_df)
     return f"X{trait_id}", corr
 
 
