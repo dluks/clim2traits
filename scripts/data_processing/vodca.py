@@ -10,6 +10,7 @@ from utils.datasets import CollectionName, Dataset, resample_dataset
 
 
 def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
+    """Converts daily data to multiyear monthly data and saves to disk"""
     ds = xr.open_mfdataset(
         fpaths,
         engine="h5netcdf",
@@ -23,7 +24,6 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
 
     ds_name = f"{band_name}_{start}_{end}_multiyear_mean"
 
-    """Converts daily data to multiyear monthly data and saves to disk"""
     ds = ds.drop_vars(["sensor_flag", "processing_flag"])
     ds = ds.rename({"vod": band_name})
     ds = ds.rename({"lon": "x", "lat": "y"})
@@ -39,7 +39,7 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
     ds_05.attrs["geospatiallatresolution"] = "0.5 degree"
     ds_05.attrs["geospatiallonresolution"] = "0.5 degree"
 
-    ds_025 = ds.resample(time="1MS").mean().groupby("time.month").mean("time")
+    ds_025 = ds.resample({"time": "1MS"}).mean().groupby("time.month").mean("time")
     ds_025.attrs["geospatiallatresolution"] = "0.25 degree"
     ds_025.attrs["geospatiallonresolution"] = "0.25 degree"
 
@@ -88,7 +88,8 @@ def daily_to_multiyear_monthly(fpaths: list[Path], out_dir: Path) -> None:
         print(f"Exported {out_name}")
 
 
-if __name__ == "__main__":
+def main():
+    """Main function for converting VODCA data to multiyear monthly data"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--standardize", action="store_true")
     parser.add_argument("--fill-holes", action="store_true")
@@ -141,3 +142,7 @@ if __name__ == "__main__":
         resample_dataset(
             vodca, 0.01, unit=Unit.DEGREE, resample_alg=1, dry_run=args.dry_run
         )
+
+
+if __name__ == "__main__":
+    main()

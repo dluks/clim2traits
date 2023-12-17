@@ -1,6 +1,6 @@
 import ee
 
-import utils.gee as gee
+from utils import gee
 
 # ee.Authenticate()  # Uncomment if not already authenticated
 ee.Initialize()
@@ -45,7 +45,8 @@ tsr_monthly_means = tsr_monthly_means.map(
     lambda x: x.reproject("EPSG:4326", None, 1000)
 )
 
-# Unmask the image collection and convert to int16 (because NoData values are replaced with 0 when converting to int16)
+# Unmask the image collection and convert to int16 (because NoData values are replaced
+# with 0 when converting to int16)
 tsr_monthly_means = tsr_monthly_means.map(lambda x: x.unmask(-32768))
 tsr_monthly_means = tsr_monthly_means.map(lambda x: x.toInt16())
 
