@@ -1,8 +1,6 @@
 from pathlib import Path
 
-import rioxarray as riox
-
-from utils.geodata import da_to_ds, ds_to_netcdf
+from utils.geodata import da_to_ds, ds_to_netcdf, open_raster
 
 
 def main():
@@ -19,7 +17,7 @@ def main():
 
     for fn in prod_fns:
         dong_fn = None
-        # Find corresponding dong file using prod_mapping
+        # Find corresponding Dong et al. file using prod_mapping
         for key, val in prod_mapping.items():
             if key in fn.name:
                 for d_fn in dong_fns:
@@ -32,12 +30,8 @@ def main():
 
         print(f"Processing {fn.name} and {dong_fn.name}")
 
-        all_prods = riox.open_rasterio(
-            fn,
-            masked=True,
-        )
-
-        dong = riox.open_rasterio(dong_fn, masked=True)
+        all_prods = open_raster(fn, masked=True)
+        dong = open_raster(dong_fn, masked=True)
 
         all_prods = all_prods.rio.reproject("epsg:4326")
         all_prods = da_to_ds(all_prods)  # type: ignore

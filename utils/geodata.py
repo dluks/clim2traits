@@ -804,3 +804,15 @@ def da_to_ds(da: xr.DataArray) -> xr.Dataset:
     ds.attrs["crs"] = crs.to_string()
 
     return ds
+
+
+def open_raster(
+    filename: Union[str, os.PathLike], **kwargs
+) -> Union[xr.DataArray, xr.Dataset]:
+    """Open a raster dataset using rioxarray."""
+    ds = riox.open_rasterio(filename, **kwargs)
+
+    if isinstance(ds, list):
+        raise ValueError("Multiple files found.")
+
+    return ds
