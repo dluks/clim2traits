@@ -14,6 +14,7 @@ import seaborn as sns
 import spacv
 import xarray as xr
 from adjustText import adjust_text
+from cartopy.mpl.geoaxes import GeoAxes
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.pyplot import colorbar
@@ -366,7 +367,7 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
     idx = pd.IndexSlice
     df = df.loc[idx[:, pft], :]
 
-    # Now hide the "PFT" index (but don't drop it)
+    # Hide the PFT index
     df.index = df.index.droplevel(1)
 
     # Set the plot style
@@ -450,6 +451,9 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
     # add space between plots
     plt.subplots_adjust(wspace=0.5)
 
+    # make sure the plots share the same y-axis
+    axs[0].set_ylim(axs[1].get_ylim())
+
     texts_splot = []
     for x_position, y_position, label, color in zip(
         x_positions, y_positions_splot, labels, label_colors
@@ -508,8 +512,136 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
         fontsize=16,
     )
 
-    # remove ax 1
-    # fig.delaxes(axs[1])
-
     # Show the plots
     plt.show()
+
+
+def plot_hex_density(
+    dataframe: Union[
+        pd.DataFrame, gpd.GeoDataFrame, list[Union[pd.DataFrame, gpd.GeoDataFrame]]
+    ],
+    resolution: Union[int, float] = 0.5,
+    ncols: int = 2,
+    global_extent: bool = True,
+    log: bool = False,
+    names: Optional[list[str]] = None,
+    label_subplots: bool = False,
+) -> list[GeoAxes]:
+    """Plot hex density of the given dataframe(s). Latitude and longitude columns must
+    be named "lat" and "lon"."""
+    if isinstance(dataframe, (pd.DataFrame, gpd.GeoDataFrame)):
+        dataframe = [dataframe]
+
+    for df in dataframe:
+        if not isinstance(df, (pd.DataFrame, gpd.GeoDataFrame)):
+            raise TypeError(
+                "Dataframe must be of type pd.DataFrame or gpd.GeoDataFrame, not "
+                f"{type(df)}"
+            )
+        if "lat" not in df.columns or "lon" not in df.columns:  # type: ignore
+            raise ValueError(
+                "Dataframe must have columns named 'lat' and 'lon' for latitude and "
+                "longitude, respectively"
+            )
+
+    if len(dataframe) > 1:
+        nrows, figsize = _nrows_figsize(len(dataframe), ncols)
+    else:
+        ncols = 1
+        nrows = 1
+        figsize = (15, 9)
+
+    _, axs = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        subplot_kw={"projection": ccrs.Robinson()},
+        figsize=figsize,
+    )
+
+    if len(dataframe) > 1:
+        axs = axs.flatten()
+    else:
+        axs = [axs]
+
+    for i, (ax, df) in enumerate(zip(axs, dataframe)):
+        if global_extent:
+            ax.set_global()
+
+        if isinstance(df, gpd.GeoDataFrame):
+            df = df.to_crs("EPSG:4326")  # type: ignore
+            df["lon"] = df.geometry.x
+            df["lat"] = df.geometry.y
+
+        if names is not None:
+            name = names[i]
+
+        if label_subplots:
+            # label the subplot with the corresponding letter a-z in the top left corner in bold
+            ax.text(
+                0.05,
+                0.95,
+                chr(97 + i),
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontweight="bold",
+            )
+        ax = _hexbin_ax(
+            ax, df["lon"], df["lat"], gridsize=int(360 / resolution), log=log, name=name
+        )
+
+    return axs
+
+
+def _hexbin_ax(
+    ax: GeoAxes,
+    lon: Union[pd.Series, np.ndarray],
+    lat: Union[pd.Series, np.ndarray],
+    gridsize: int,
+    log: bool = False,
+    name: Optional[str] = None,
+) -> GeoAxes:
+    """Plot hexbin on the given axis"""
+
+    hb = ax.hexbin(
+        lon,
+        lat,
+        gridsize=gridsize,
+        # cmap=sns.color_palette("mako", as_cmap=True),
+        cmap=sns.cubehelix_palette(
+            start=0.5, rot=-0.75, dark=0.1, light=0.9, reverse=False, as_cmap=True
+        ),
+        mincnt=1,
+        bins="log" if log else None,
+        transform=ccrs.PlateCarree(),
+        vmax=10000,
+    )
+
+    if name is None:
+        cb_label = "Number of observations"
+        title = "Global density"
+    else:
+        cb_label = f"Number of {name} observations"
+        title = f"{name} global density"
+
+    plt.colorbar(hb, ax=ax, label=cb_label, shrink=0.8)
+    ax.coastlines(resolution="110m", linewidth=0.5)
+    ax.set_title(title)
+
+    return ax
+
+
+def _nrows_figsize(data_length: int, ncols: int) -> tuple[int, tuple[int, int]]:
+    """Calculate number of rows and figsize for given data length and number of columns"""
+    if data_length >= ncols:
+        nrows = math.ceil(data_length / ncols)
+    else:
+        nrows = 1
+
+    # Define figsize based on number of rows and columns
+    if ncols == 1:
+        figsize = (15, 9)
+    else:
+        figsize = (5 * ncols, 3 * nrows)
+
+    return nrows, figsize
