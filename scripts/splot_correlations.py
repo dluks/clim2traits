@@ -18,10 +18,11 @@ def create_correlation_table() -> pd.DataFrame:
         traits.append(f"X{trait}")
 
     mi_columns = pd.MultiIndex.from_product(
-        [["2", "0.5", "0.2", "0.01"], ["GBIF", "sPlot"]]
+        [["2", "0.5", "0.2", "0.01"], ["GBIF", "sPlot"]],
+        names=["Resolution", "Training data"],
     )
     mi_rows = pd.MultiIndex.from_product(
-        [traits, ["Grass", "Shrub-Tree", "Shrub-Tree-Grass"]]
+        [traits, ["Grass", "Shrub-Tree", "Shrub-Tree-Grass"]], names=["Trait", "PFT"]
     )
     df = pd.DataFrame(index=mi_rows, columns=mi_columns)
     df.to_parquet("results/trait_correlations.parquet")
