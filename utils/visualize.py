@@ -244,6 +244,73 @@ def plot_distributions(
     plt.show()
 
 
+def plot_spatial_distribution(
+    trait_dataframe: gpd.GeoDataFrame, prediction_dataframe: gpd.GeoDataFrame, n_cols=4
+):
+    """Plot the spatial distribution of a GeoDataFrame as a density curve"""
+
+    traits = trait_dataframe.columns.difference(["geometry"])
+
+    n_plots = len(traits)
+    n_rows = int(np.ceil(n_plots / n_cols))
+    figsize = (5 * n_cols, 3 * n_rows)
+
+    sns.set_style("darkgrid")
+    _, axes = plt.subplots(n_rows, n_cols, figsize=figsize, tight_layout=True, dpi=200)
+    axes = axes.flatten()
+
+    for trait, ax in zip(traits, axes):
+        trait_df = trait_dataframe[["geometry", trait]].dropna(subset=[trait])
+
+        # Extract the x and y coordinates from the geometry and convert to radians
+        coords_trait = np.radians(
+            trait_df.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()
+        )
+        coords_predictions = np.radians(
+            prediction_dataframe.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()
+        )
+
+        # Compute the nearest neighbor distances
+        nbrs_trait = NearestNeighbors(n_neighbors=2, metric="haversine").fit(
+            coords_trait
+        )
+
+        dist_trait, _ = nbrs_trait.kneighbors(coords_trait)
+        dist_trait_predictions, _ = nbrs_trait.kneighbors(coords_predictions)
+
+        nn_trait = dist_trait[:, 1]
+        nn_trait_predictions = dist_trait_predictions[:, 1]
+
+        # Convert the distances from radians to kilometers (assuming Earth's radius is
+        # 6371 km)
+        nn_trait *= 6371
+        nn_trait_predictions *= 6371
+
+        sns.kdeplot(
+            [
+                nn_trait,
+                nn_trait_predictions,
+            ],
+            common_norm=True,
+            common_grid=True,
+            fill=True,
+            log_scale=(True, False),
+            legend=False,
+            # bw_adjust=2,
+            # palette=["red", "blue"],
+            ax=ax,
+        )
+        ax.set_title(trait)
+        # plt.xlabel("Nearest neighbor distance (km)")
+        # plt.ylabel("Density")
+        # plt.title("Spatial distribution of test trait values")
+
+    # clean up empty subplots
+    for i in range(n_plots, n_cols * n_rows):
+        ax = axes[i]
+        ax.set_axis_off()
+
+
 def truncate_string(string: str, max_len: int = 30) -> str:
     """Truncate a string to a maximum length, adding ellipses to the middle if necessary"""
     if len(string) > max_len:
