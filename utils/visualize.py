@@ -3,7 +3,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -18,6 +18,7 @@ from cartopy.mpl.geoaxes import GeoAxes
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
 from matplotlib.pyplot import colorbar
+from sklearn.neighbors import NearestNeighbors
 
 os.environ["USE_PYGEOS"] = "0"
 
@@ -318,18 +319,21 @@ def truncate_string(string: str, max_len: int = 30) -> str:
     return string
 
 
-def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False):
+def plot_observed_vs_predicted(
+    ax: plt.Axes,
+    observed: pd.Series,
+    predicted: pd.Series,
+    name: str,
+    log: bool = False,
+    show_r: bool = True,
+):
     """Plot observed vs. predicted values."""
 
     # plot the observed vs. predicted values using seaborn
     sns.set_theme()
 
-    p1 = min(predicted, observed)
-    p2 = max(predicted, observed)
-    if log:
-        ax.loglog([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
-    else:
-        ax.plot([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
+    p1 = min(predicted.min(), observed.min())
+    p2 = max(predicted.max(), observed.max())
 
     cmap = sns.cubehelix_palette(start=0.5, rot=-0.75, reverse=True, as_cmap=True)  # type: ignore
     sns.kdeplot(x=predicted, y=observed, ax=ax, cmap=cmap, fill=True, thresh=0.0075)
@@ -338,22 +342,29 @@ def plot_observed_vs_predicted(ax, observed, predicted, name, log: bool = False)
     # line so that it spans the entire plot, and print the correlation coefficient
     m, b = np.polyfit(predicted, observed, 1)
     reg_line = [m * p1 + b, m * p2 + b]
+
     if log:
+        ax.loglog([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
         ax.loglog([p1, p2], reg_line, color="red", lw=0.5)
     else:
+        ax.plot([p1, p2], [p1, p2], color="black", ls="-.", lw=0.5, alpha=0.5)
         ax.plot([p1, p2], reg_line, color="red", lw=0.5)
+
+    # make sure lines are positioned on top of kdeplot
+    ax.set_zorder(1)
 
     buffer_color = "#e9e9f1"
 
-    ax.text(
-        0.05,
-        0.95,
-        f"$r$ = {np.corrcoef(predicted, observed)[0, 1]:.3f}",
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        bbox={"facecolor": buffer_color, "edgecolor": buffer_color, "pad": 0.5},
-    )
+    if show_r:
+        ax.text(
+            0.05,
+            0.95,
+            f"$r$ = {np.corrcoef(predicted, observed)[0, 1]:.3f}",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            bbox={"facecolor": buffer_color, "edgecolor": buffer_color, "pad": 0.5},
+        )
 
     ax.text(
         0.05,
@@ -408,7 +419,7 @@ def plot_all_trait_obs_pred(trait_dirs, mapping=None):
             # Update trait name to match the mapping
             trait_id = trait.split("_")[2].split("X")[1]
             trait_set = trait.split("_")[0]
-            trait = f"{trait_set} {mapping[trait_id]}"
+            trait = f"{trait_set} {mapping[trait_id]['short']}"
             if log:
                 trait += " (log)"
 
@@ -417,7 +428,17 @@ def plot_all_trait_obs_pred(trait_dirs, mapping=None):
         obs = obs_vs_pred["observed"]
         pred = obs_vs_pred["predicted"]
 
-        axs[i] = plot_observed_vs_predicted(axs[i], obs, pred, trait)
+        axs[i] = plot_observed_vs_predicted(axs[i], obs, pred, trait, show_r=False)
+        r_mean, r_std = cv_r(obs_vs_pred)
+        axs[i].text(
+            0.05,
+            0.95,
+            f"$r$ = {r_mean:.2f}±{r_std:.2f}",
+            transform=axs[i].transAxes,
+            ha="left",
+            va="top",
+            bbox={"facecolor": "#e9e9f1", "edgecolor": "#e9e9f1", "pad": 0.5},
+        )
 
     # Ensure that only the left-most column has y-axis labels
     for i in range(num_traits):
@@ -427,6 +448,13 @@ def plot_all_trait_obs_pred(trait_dirs, mapping=None):
     # Clean up empty subplots
     for i in range(num_traits, num_rows * num_cols):
         fig.delaxes(axs[i])
+
+
+def cv_r(df: pd.DataFrame) -> Tuple[float, float]:
+    """Calculate the mean and standard deviation of the correlation coefficient for each
+    fold in the given dataframe"""
+    grouped = df.groupby("fold").apply(lambda x: x["observed"].corr(x["predicted"]))
+    return (grouped.mean(), grouped.std())
 
 
 def plot_splot_correlations(df: pd.DataFrame, pft: str):
