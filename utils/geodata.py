@@ -785,16 +785,21 @@ def pack_ds(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def da_to_ds(da: xr.DataArray) -> xr.Dataset:
+def da_to_ds(da: xr.DataArray, name: Optional[str] = None) -> xr.Dataset:
     """Convert a DataArray to Dataset with appropriately-named data variables."""
     assert "long_name" in da.attrs, "long_name attribute is required"
 
     crs = da.rio.crs
 
-    ds = da.to_dataset(dim="band")
-    ds = ds.rename_vars(
-        {dv: ds.attrs["long_name"][i] for i, dv in enumerate(ds.data_vars)}
-    )
+    if "band" in da.dims:
+        ds = da.to_dataset(dim="band")
+        ds = ds.rename_vars(
+            {dv: ds.attrs["long_name"][i] for i, dv in enumerate(ds.data_vars)}
+        )
+    else:
+        if name is None:
+            raise ValueError("name is required if DataArray has no band dimension.")
+        ds = da.to_dataset(name=name)
 
     with xr.set_options(keep_attrs=True):
         for dv in ds.data_vars:
@@ -802,6 +807,7 @@ def da_to_ds(da: xr.DataArray) -> xr.Dataset:
 
     ds = ds.rio.write_crs(crs)
     ds.attrs["crs"] = crs.to_string()
+    ds.attrs["long_name"] = [str(dv) for dv in ds.data_vars]
 
     return ds
 
