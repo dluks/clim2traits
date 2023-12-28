@@ -1,15 +1,31 @@
+from multiprocessing import Pool
+from pathlib import Path
 from typing import Any, Generator, Optional, Sequence, Tuple, Union
 
+import dask_geopandas as dgpd
 import geopandas as gpd
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+import rioxarray as riox
 import spacv
+import statsmodels.api as statmod
+import xarray as xr
+from pyproj import Proj
+from shapely.geometry import shape
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import pairwise_distances, pairwise_distances_chunked
+from tqdm import tqdm
 from verstack import NaNImputer
 
 from utils.dataset_tools import timer
+from utils.geodata import (
+    back_transform_trait,
+    ds2gdf,
+    get_trait_id_from_data_name,
+    num_to_str,
+    open_raster,
+)
 
 
 def block_cv_splits(
@@ -211,7 +227,8 @@ def impute_missing(data: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     # Confirm that the shape of the imputed data is the same as the original
     if imputed.shape != data.shape:
         raise ValueError(
-            f"Imputed data shape ({imputed.shape}) does not match original data shape ({data.shape})"
+            f"Imputed data shape ({imputed.shape}) does not match original data shape"
+            f"({data.shape})"
         )
 
     # Get columns that are completely empty and drop them
@@ -336,3 +353,328 @@ def calc_aoa(mindist, train_dist, thres):
     masked_result[DIs > thres] = 0
 
     return DIs, masked_result
+
+
+def lat_weights(lat_unique, deg):
+    """Calculate weights for each latitude band based on area of grid cells.
+    Source: https://sojwolf.github.io/iNaturalist_traits/Chapter_14_Closer_Look_at_Schiller_map.html
+    """
+
+    # determine weights per grid cell based on longitude
+    # keep only one exemplary cell at each distance from equator
+    # weights per approximated area of grid size depending on distance from equator
+
+    # make dictionary
+    weights = {}
+
+    for j in lat_unique:
+        # the four corner points of the grid cell
+
+        p1 = (0, j + (deg / 2))
+        p2 = (deg, j + (deg / 2))
+        p3 = (deg, j - (deg / 2))
+        p4 = (0, j - (deg / 2))
+
+        # Calculate polygon surface area
+        # https://stackoverflow.com/questions/4681737/how-to-calculate-the-area-of-a-polygon-on-the-earths-surface-using-python
+
+        # Define corner points
+        co = {"type": "Polygon", "coordinates": [[p1, p2, p3, p4]]}
+        lat_1 = p1[1]
+        lat_2 = p3[1]
+        lat_0 = (p1[1] + p3[1]) / 2
+        lon_0 = deg / 2
+
+        # Caveat: Connot go accross equator
+        value1 = abs(lat_1 + lat_2)
+        value2 = abs((lat_1) + abs(lat_2))
+
+        # if grid cell overlaps equator:
+        if value1 < value2:
+            lat_1 = p1[1]
+            lat_2 = 0
+            lat_0 = (p1[1] + lat_2) / 2
+            lon_0 = deg / 2
+
+            # Projection equal area used: https://proj.org/operations/projections/aea.html
+            projection_string = (
+                "+proj=aea +lat_1="
+                + str(lat_1)
+                + " +lat_2="
+                + str(lat_2)
+                + " +lat_0="
+                + str(lat_0)
+                + " +lon_0="
+                + str(lon_0)
+            )
+            lon, lat = zip(*co["coordinates"][0])
+
+            pa = Proj(projection_string)
+
+            # Only coercing to tuple bc pylint doesn't seem to respect the Proj object's
+            # __call__ type hints
+            x, y = tuple(pa(lon, lat))
+            cop = {"type": "Polygon", "coordinates": [zip(x, y)]}
+
+            area = (shape(cop).area / 1000000) * 2
+
+        # if grid cell is on one side of equator:
+        else:
+            # Projection equal area used: https://proj.org/operations/projections/aea.html
+            projection_string = (
+                "+proj=aea +lat_1="
+                + str(lat_1)
+                + " +lat_2="
+                + str(lat_2)
+                + " +lat_0="
+                + str(lat_0)
+                + " +lon_0="
+                + str(lon_0)
+            )
+            lon, lat = zip(*co["coordinates"][0])
+
+            pa = Proj(projection_string)
+            # Only coercing to tuple bc pylint doesn't seem to respect the Proj object's
+            # __call__ type hints
+            x, y = tuple(pa(lon, lat))
+            cop = {"type": "Polygon", "coordinates": [zip(x, y)]}
+
+            area = shape(cop).area / 1000000
+
+        # set coord to center of grid cell
+        coord = j
+
+        # map area to weights dictionary
+        weights[coord] = area
+
+    # convert area into proportion with area/max.area:
+    max_area = max(weights.values())
+
+    for key in weights:
+        weights[key] = weights[key] / max_area
+
+    return weights
+
+
+def weighted_r(
+    df: gpd.GeoDataFrame,
+    col_1: str,
+    col_2: str,
+    col_lat: str,
+    weights: dict,
+    r2: bool = False,
+):
+    """Calculate weighted correlation between two columns of a dataframe.
+    Source: https://sojwolf.github.io/iNaturalist_traits/Chapter_14_Closer_Look_at_Schiller_map.html
+    """
+    # map weights to dataframe
+    df["Weights"] = df[col_lat].map(weights)
+
+    # drop nan
+    df = df.dropna()
+
+    # calculate weighted correlation
+    # https://www.statsmodels.org/stable/generated/statsmodels.stats.weightstats.DescrStatsW.html
+    d1 = statmod.stats.DescrStatsW(df[[col_1, col_2]], df["Weights"])
+
+    corr = d1.corrcoef[0][1]
+
+    # optional
+    # calculate r2
+    if r2:
+        corr = corr**2
+
+    return corr
+
+
+def compare_gdfs(
+    gdf1: gpd.GeoDataFrame, gdf2: gpd.GeoDataFrame, weights: Optional[dict] = None
+) -> float:
+    """Calculate the correlation coefficient between two GeoDataFrames. Assumes that the
+    two GeoDataFrames consist of a geometry column and a single data column.
+    """
+    col1 = gdf1.columns.difference(["geometry"]).values[0]
+    col2 = gdf2.columns.difference(["geometry"]).values[0]
+    merged = gpd.sjoin(gdf1, gdf2, how="inner", predicate="intersects")
+    merged = merged.dropna()
+    merged["x"] = merged.geometry.x
+    merged["y"] = merged.geometry.y
+
+    if weights is not None:
+        corr = weighted_r(merged, col1, col2, "y", weights)
+    else:
+        corr = merged[col1].corr(merged[col2])
+    return corr
+
+
+def trait_correlation(
+    trait_pred_dir: Path, grid_res: Union[int, float], pft: str
+) -> Tuple[str, float]:
+    """Get the correlation between trait predictions and sPlot maps for a given trait."""
+    trait = trait_pred_dir.parent.name
+    trait_id = get_trait_id_from_data_name(trait)
+    trait_prediction_fn = list(trait_pred_dir.glob("*.parq"))[0]
+
+    if grid_res == 0.01:
+        cols = dgpd.read_parquet(trait_prediction_fn).columns.values
+        trait_prediction = dgpd.read_parquet(
+            trait_prediction_fn, columns=cols[:2]
+        ).compute()
+
+        # Round coordinates to 3 decimal places to account for floating point errors
+        x = trait_prediction.geometry.x.round(3)
+        y = trait_prediction.geometry.y.round(3)
+        trait_prediction.geometry = gpd.points_from_xy(x, y)
+        del x, y
+    else:
+        cols = gpd.read_parquet(trait_prediction_fn).columns.values
+        trait_prediction = gpd.read_parquet(trait_prediction_fn, columns=cols[:2])
+
+    if trait.endswith("_ln"):
+        trait_prediction = back_transform_trait(trait_prediction)
+
+    splot_dir = Path("GBIF_trait_maps/global_maps", pft, f"{num_to_str(grid_res)}deg")
+
+    if grid_res >= 0.5:
+        splot_fn = list(splot_dir.glob(f"sPlot*_X{trait_id}_*.grd"))[0]
+        splot_ds = open_raster(splot_fn, masked=True).sel(band=2)
+    else:
+        splot_dir = splot_dir / "05_range"
+        splot_fn = list(splot_dir.glob(f"sPlot*_X{trait_id}_*.tif"))[0]
+        splot_ds = open_raster(splot_fn, masked=True).squeeze()
+
+    if isinstance(splot_ds, list):
+        raise ValueError("Multiple sPlot files found.")
+
+    splot_df = ds2gdf(splot_ds, f"X{trait_id}")
+
+    # Round coordinates to 3 decimal places to account for floating point errors
+    x = splot_df.geometry.x.round(3)
+    y = splot_df.geometry.y.round(3)
+    splot_df.geometry = gpd.points_from_xy(x, y)
+    del x, y
+
+    # get latitude weights
+    weights = lat_weights(splot_df.geometry.y.unique(), grid_res)
+    corr = compare_gdfs(trait_prediction, splot_df, weights=weights)
+    return f"X{trait_id}", corr
+
+
+def splot_correlations(
+    grid_res: Union[int, float], model_res: Union[int, float], pft: str
+) -> Tuple[dict, dict]:
+    """Get the correlations between trait predictions and sPlot maps for all traits in
+    a given PFT and of a given resolution in degrees."""
+    predictor_dataset = "MOD09GA.061_ISRIC_soil_WC_BIO_VODCA"
+    nan_strat = "nan-strat=any_thr=0.5"
+    dataset_name = f"{predictor_dataset}_{grid_res:g}_deg_{nan_strat}"
+
+    dataset_dir_name = f"{'tiled_5x5_deg_' if grid_res == 0.01 else ''}{dataset_name}"
+
+    prediction_dir = Path(
+        "results/predictions",
+        f"{num_to_str(model_res)}deg_models",
+        dataset_dir_name,
+        pft,
+    )
+
+    gbif_dirs = list(prediction_dir.glob("TRYgapfilled*/GBIF"))
+    splot_dirs = list(prediction_dir.glob("TRYgapfilled*/sPlot"))
+
+    if grid_res == 0.01:
+        corr_table_gbif = {}
+        corr_table_splot = {}
+
+        for trait_dir in tqdm(gbif_dirs):
+            trait, corr = trait_correlation(trait_dir, grid_res, pft)
+            corr_table_gbif[trait] = corr
+
+        for trait_dir in tqdm(splot_dirs):
+            trait, corr = trait_correlation(trait_dir, grid_res, pft)
+            corr_table_splot[trait] = corr
+    else:
+        with Pool() as pool:
+            results_gbif = pool.starmap(
+                trait_correlation,
+                [
+                    (trait_dir, grid_res, pft)
+                    for trait_dir in prediction_dir.glob("TRYgapfilled*/GBIF")
+                ],
+            )
+            results_splot = pool.starmap(
+                trait_correlation,
+                [
+                    (trait_dir, grid_res, pft)
+                    for trait_dir in prediction_dir.glob("TRYgapfilled*/sPlot")
+                ],
+            )
+
+        corr_table_gbif = dict(results_gbif)
+        corr_table_splot = dict(results_splot)
+
+    return corr_table_gbif, corr_table_splot
+
+
+def splot_correlation_old(
+    gdf: gpd.GeoDataFrame, trait_id: str, trait_name: str, splot_set: str = "orig"
+) -> float:
+    """Get the correlation between trait predictions and sPlot maps for a given trait.
+
+    Args:
+        gdf (gpd.GeoDataFrame): Trait predictions
+        trait_id (str): Trait ID
+        trait_name (str): Trait name
+        splot_set (str, optional): sPlot dataset (one of ["orig", "05_range"], case-insensitive).
+
+    Returns:
+        float: Pearson correlation coefficient
+    """
+    splot = riox.open_rasterio(
+        f"data/splot/0.01_deg/{splot_set.lower()}/sPlot_{trait_id}_0.01deg.tif",
+        masked=True,
+    )
+
+    splot = ds2gdf(splot, trait_name)
+    splot_corr = compare_gdfs(gdf, splot)
+
+    return splot_corr
+
+
+def compare_gdf_to_grid(
+    gdf: gpd.GeoDataFrame,
+    grid: xr.DataArray,
+    gdf_name: str,
+    grid_name: str,
+) -> np.float64:
+    """Calculate the correlation coefficient between a GeoDataFrame and a raster grid."""
+    # Ensure that the grids share the same CRS
+    grid = grid.rio.reproject("EPSG:4326")
+
+    # Convert to GDFs
+    grid = ds2gdf(grid, name=grid_name).dropna(subset=[grid_name])
+
+    # Merge the two geodataframes on the geometry column such that only matching
+    # geometries are retained
+    merged = gpd.sjoin(gdf, grid, how="inner", predicate="intersects")
+
+    corr = merged[gdf_name].corr(merged[grid_name])
+    return corr
+
+
+def compare_grids(
+    grid1: xr.DataArray, grid2: xr.DataArray, grid1_name: str, grid2_name: str
+) -> np.float64:
+    """Calculate the correlation coefficient between two raster grids."""
+    # Ensure that the grids share the same CRS
+    grid1 = grid1.rio.reproject("EPSG:4326")
+    grid2 = grid2.rio.reproject("EPSG:4326")
+
+    # Convert to GDFs
+    grid1 = ds2gdf(grid1, name=grid1_name).dropna(subset=[grid1_name])
+    grid2 = ds2gdf(grid2, name=grid2_name).dropna(subset=[grid2_name])
+
+    # Merge the two geodataframes on the geometry column such that only matching
+    # geometries are retained
+    merged = gpd.sjoin(grid1, grid2, how="inner", op="intersects")
+    corr = merged[grid1_name].corr(merged[grid2_name])
+    return corr
