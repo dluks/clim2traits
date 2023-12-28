@@ -664,26 +664,29 @@ def ds_to_netcdf(
 
 
 def get_trait_id_from_data_name(data_name: str) -> str:
-    """Get trait id from data name, e.g. GBIF_TRYgapfille   d_X1080_05deg_mean_ln -> 1080"""
+    """Get trait id from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln -> 1080"""
     trait_id = re.search(r"X\d+", data_name).group()
     trait_id = trait_id.replace("X", "")
     return trait_id
 
 
-def get_trait_name_from_trait_id(trait_id: str) -> str:
+def get_trait_name_from_trait_id(trait_id: str, short: bool = False) -> str:
     """Get trait name from trait id, e.g. 1080 -> Root length per root dry mass
     (specific root length, SRL) (log-transformed)"""
     with open("./trait_mapping.json", encoding="utf-8") as f:
         mapping = json.load(f)
-        trait_name = mapping[trait_id]["long"]
+        if short:
+            trait_name = mapping[trait_id]["short"]
+        else:
+            trait_name = mapping[trait_id]["long"]
     return trait_name
 
 
-def get_trait_name_from_data_name(data_name: str) -> str:
+def get_trait_name_from_data_name(data_name: str, short: bool = False) -> str:
     """Get trait name from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln ->
     Root length per root dry mass (specific root length, SRL) (log-transformed)"""
     trait_id = get_trait_id_from_data_name(data_name)
-    trait_name = get_trait_name_from_trait_id(trait_id)
+    trait_name = get_trait_name_from_trait_id(trait_id, short=short)
     return trait_name
 
 
