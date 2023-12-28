@@ -613,6 +613,7 @@ FodyWeavers.xsd
 # End of https://www.toptal.com/developers/gitignore/api/visualstudio
 
 ### Project-specific files and directories ###
+.local_gitignore
 data/
 models/
 results/
