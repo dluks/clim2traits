@@ -7,7 +7,7 @@ import re
 import sys
 from functools import reduce
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
@@ -25,30 +25,61 @@ load_dotenv(find_dotenv())
 NPARTITIONS = os.cpu_count()
 
 
-def ds2gdf(
-    ds: xr.DataArray, name: Optional[str] = None
-) -> Union[gpd.GeoDataFrame, dgpd.GeoDataFrame]:
-    """Converts an xarray dataset to a geopandas dataframe
+def xr_to_gdf(data: Union[xr.DataArray, xr.Dataset]) -> gpd.GeoDataFrame:
+    """Converts a geospatial xarray dataset with "x" and "y" coords to a geopandas dataframe
 
     Args:
-        ds (xarray.DataArray): Dataset to convert
-        name (Optional[str], optional): Name of the dataset. Defaults to None.
+        data (Union[xr.DataArray, xr.Dataset]): Geospatial xarray dataset or data array to convert.
+        name (Optional[str], optional): Name of the data variable. Only used if data is
+            an xr.DataArray. Defaults to None.
 
     Returns:
-        geopandas.GeoDataFrame: GeoPandas dataframe
+        gpd.GeoDataFrame: GeoPandas dataframe containing the converted data.
     """
-    ds_name = name if name is not None else ds.name
-    crs = "EPSG:4326"
 
-    out = ds.to_dataframe(name=ds_name).reset_index()
-    out = out.drop(columns=["band", "spatial_ref"])
-    out = out.dropna(subset=out.columns.difference(["x", "y"]))
+    return (
+        data.to_dataframe()
+        .reset_index()
+        .pipe(df_to_gdf, crs=data.rio.crs)
+        .pipe(drop_cols, columns=["x", "y", "band", "spatial_ref"])
+        .pipe(
+            lambda gdf: gdf.dropna(
+                subset=gdf.columns.difference(["geometry"]), how="all"
+            )
+        )
+    )
 
-    geometry = gpd.points_from_xy(out.x, out.y)
-    out = out.drop(columns=["x", "y"])
-    out = gpd.GeoDataFrame(data=out, crs=crs, geometry=geometry)
 
-    return out
+def df_to_gdf(
+    df: pd.DataFrame, x: str = "x", y: str = "y", crs: Any = "EPSG:4326"
+) -> gpd.GeoDataFrame:
+    """
+    Convert a pandas DataFrame to a GeoDataFrame.
+
+    Args:
+        df (pd.DataFrame): The pandas DataFrame to be converted.
+        x (str): The column name representing the x-coordinate. Defaults to "x".
+        y (str): The column name representing the y-coordinate. Defaults to "y".
+        crs (Any): The coordinate reference system of the GeoDataFrame. Defaults to
+            "EPSG:4326".
+
+    Returns:
+        gpd.GeoDataFrame: The converted GeoDataFrame.
+    """
+    return gpd.GeoDataFrame(  # type: ignore
+        df,
+        geometry=gpd.points_from_xy(df[x], df[y]),
+        crs=crs,
+    )
+
+
+def drop_cols(
+    df: Union[pd.DataFrame, gpd.GeoDataFrame],
+    columns: Union[List[str], pd.Index],
+) -> Union[pd.DataFrame, gpd.GeoDataFrame]:
+    """Drop columns from a dataframe if they exist. Will not throw errors if columns
+    aren't found!"""
+    return df.drop(columns=df.columns.intersection(columns))
 
 
 def tif2gdf(
@@ -76,19 +107,19 @@ def tif2gdf(
 
         if band_id not in ds.band.values:
             # Should raise an error here, but this is a quick fix for now
-            band_gdfs.append(ds2gdf(ds))
+            band_gdfs.append(xr_to_gdf(ds))
         else:
             band_ds = ds.sel(band=band_id)
             band_ds.name = f"{ds.name}_{band_name}"
-            band_gdfs.append(ds2gdf(band_ds))
+            band_gdfs.append(xr_to_gdf(band_ds))
     elif "band" in ds.coords:
         for band in ds.band.values:
             band_ds = ds.sel(band=band)
             if ds.band.values.size > 1:
                 band_ds.name = f"{ds.name}_band{band:02d}"
-            band_gdfs.append(ds2gdf(band_ds))
+            band_gdfs.append(xr_to_gdf(band_ds))
     else:
-        band_gdfs.append(ds2gdf(ds))
+        band_gdfs.append(xr_to_gdf(ds))
 
     if len(band_gdfs) > 1:
         gdf = merge_gdfs(band_gdfs)

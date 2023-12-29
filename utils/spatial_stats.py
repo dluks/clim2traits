@@ -21,10 +21,10 @@ from verstack import NaNImputer
 from utils.dataset_tools import timer
 from utils.geodata import (
     back_transform_trait,
-    ds2gdf,
     get_trait_id_from_data_name,
     num_to_str,
     open_raster,
+    xr_to_gdf,
 )
 
 
@@ -546,7 +546,8 @@ def trait_correlation(
     if isinstance(splot_ds, list):
         raise ValueError("Multiple sPlot files found.")
 
-    splot_df = ds2gdf(splot_ds, f"X{trait_id}")
+    splot_ds.name = f"X{trait_id}"
+    splot_df = xr_to_gdf(splot_ds)
 
     # Round coordinates to 3 decimal places to account for floating point errors
     x = splot_df.geometry.x.round(3)
@@ -633,8 +634,8 @@ def splot_correlation_old(
         f"data/splot/0.01_deg/{splot_set.lower()}/sPlot_{trait_id}_0.01deg.tif",
         masked=True,
     )
-
-    splot = ds2gdf(splot, trait_name)
+    splot.name = trait_name
+    splot = xr_to_gdf(splot)
     splot_corr = compare_gdfs(gdf, splot)
 
     return splot_corr
@@ -651,7 +652,8 @@ def compare_gdf_to_grid(
     grid = grid.rio.reproject("EPSG:4326")
 
     # Convert to GDFs
-    grid = ds2gdf(grid, name=grid_name).dropna(subset=[grid_name])
+    grid.name = grid_name
+    grid = xr_to_gdf(grid).dropna(subset=[grid_name])
 
     # Merge the two geodataframes on the geometry column such that only matching
     # geometries are retained
@@ -670,8 +672,10 @@ def compare_grids(
     grid2 = grid2.rio.reproject("EPSG:4326")
 
     # Convert to GDFs
-    grid1 = ds2gdf(grid1, name=grid1_name).dropna(subset=[grid1_name])
-    grid2 = ds2gdf(grid2, name=grid2_name).dropna(subset=[grid2_name])
+    grid1.name = grid1_name
+    grid2.name = grid2_name
+    grid1 = xr_to_gdf(grid1).dropna(subset=[grid1_name])
+    grid2 = xr_to_gdf(grid2).dropna(subset=[grid2_name])
 
     # Merge the two geodataframes on the geometry column such that only matching
     # geometries are retained
