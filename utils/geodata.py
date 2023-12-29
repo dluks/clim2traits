@@ -9,19 +9,18 @@ from functools import reduce
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio as rio
 import rioxarray as riox
 import xarray as xr
+from dotenv import find_dotenv, load_dotenv
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from tqdm import tqdm
 
-os.environ["USE_PYGEOS"] = "0"
-
-import dask_geopandas as dgpd
-import geopandas as gpd
+load_dotenv(find_dotenv())
 
 NPARTITIONS = os.cpu_count()
 
