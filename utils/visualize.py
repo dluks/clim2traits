@@ -325,6 +325,7 @@ def plot_observed_vs_predicted(
     predicted: pd.Series,
     name: str,
     log: bool = False,
+    density: bool = False,
     show_r: bool = True,
 ):
     """Plot observed vs. predicted values."""
@@ -336,7 +337,10 @@ def plot_observed_vs_predicted(
     p2 = max(predicted.max(), observed.max())
 
     cmap = sns.cubehelix_palette(start=0.5, rot=-0.75, reverse=True, as_cmap=True)  # type: ignore
-    sns.kdeplot(x=predicted, y=observed, ax=ax, cmap=cmap, fill=True, thresh=0.0075)
+    if density:
+        sns.kdeplot(x=predicted, y=observed, ax=ax, cmap=cmap, fill=True, thresh=0.0075)
+    else:
+        sns.scatterplot(x=predicted, y=observed, ax=ax, s=1)
 
     # Fit a regression line for observed vs. predicted values, plot the regression
     # line so that it spans the entire plot, and print the correlation coefficient
@@ -466,6 +470,19 @@ def plot_splot_correlations(df: pd.DataFrame, pft: str):
     df.index = df.index.droplevel(1)
 
     # Set the plot style
+    ### Plotting configuration
+    sns.set_theme(
+        context="paper",
+        style="ticks",
+        palette="deep",
+        font="FreeSans",
+        font_scale=1,
+        color_codes=True,
+        rc=None,
+    )
+
+    # Figure directory
+    fig_dir = Path("../reports/figures")
     sns.set_theme(style="whitegrid")
     custom_params = {"axes.spines.right": False, "axes.spines.top": False}
     sns.set_theme(style="ticks", rc=custom_params)
