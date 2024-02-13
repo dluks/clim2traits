@@ -34,20 +34,24 @@ def aggregate_ic(
     ddiff = end.difference(start, timeframe)
     length = ee.List.sequence(0, ddiff.subtract(1))  # => [0, 1, ..., 11]
 
-    def datelist(t):
+    def datelist(t: ee.Date) -> ee.Date:
         return start.advance(t, timeframe)
 
     dates = length.map(datelist)
 
-    def create_subcollections(t):
+    def create_subcollections(t: ee.Date) -> ee.ImageCollection:
         t = ee.Date(t)
-        filt_coll = ic.filterDate(t, t.advance(1, timeframe))
-        filt_coll = filt_coll.set("bandcount", ee.Number(filt_coll.size())).set(
-            "system:time_start", t.millis()
+        # filt_coll = filt_coll.set("bandcount", ee.Number(filt_coll.size())).set(
+        #     "system:time_start", t.millis()
+        # )
+        return ic.filterDate(t, t.advance(1, timeframe)).map(
+            lambda ic: ic.set("bandcount", ee.Number(ic.size())).set(
+                "system:time_start", t.millis()
+            )
         )
-        return filt_coll
 
     grouped_ic = dates.map(create_subcollections)
+
     # Filter months with 0 observations
     grouped_ic = grouped_ic.filter(ee.Filter.gt("bandcount", 0))
 
@@ -58,22 +62,24 @@ def aggregate_ic(
     except IndexError:
         bn = "empty"
 
-    def reduce_mean(grouped_ic: ee.List) -> ee.Image:
-        grouped_ic = ee.ImageCollection(grouped_ic)
-        t = grouped_ic.get("system:time_start")
-        mn = grouped_ic.reduce(ee.Reducer.mean()).set("system:time_start", t).rename(bn)
-        return mn
+    def reduce_mean(ic: ee.ImageCollection) -> ee.Image:
+        # ic = ee.ImageCollection(ic)
+        t = ic.get("system:time_start")
+        # mn = ic.reduce(ee.Reducer.mean()).set("system:time_start", t).rename(bn)
+        return ic.reduce(ee.Reducer.mean()).set("system:time_start", t).rename(bn)
 
-    agg_ic = grouped_ic.map(reduce_mean)
-    agg_ic = ee.ImageCollection.fromImages(agg_ic)
-    agg_ic = agg_ic.filter(ee.Filter.listContains("system:band_names", bn))
+    # agg_ic = (ee.ImageCollection.fromImages(grouped_ic.map(reduce_mean))
+    #           .filter(ee.Filter.listContains("system:band_names", bn))
+    #           )
+    # agg_ic = ee.ImageCollection.fromImages(agg_ic)
+    # agg_ic = agg_ic.filter(ee.Filter.listContains("system:band_names", bn))
 
-    return agg_ic
+    return ee.ImageCollection.fromImages(grouped_ic.map(reduce_mean)).filter(
+        ee.Filter.listContains("system:band_names", bn)
+    )
 
 
-def aggregate_ic_monthly(
-    ic: ee.ImageCollection, ds: str, de: str
-) -> ee.ImageCollection:
+def aggregate_ic_monthly(ic: ee.ImageCollection) -> ee.ImageCollection:
     """Aggregates an ImageCollection of monthly averages to calendar month means"""
 
     def reduce_months(month):
@@ -90,11 +96,11 @@ def aggregate_ic_monthly(
             .rename(bn)
         )
 
-    months = ee.List.sequence(1, 12)
-    monthly_means = months.map(reduce_months)
-    monthly_means = ee.ImageCollection.fromImages(monthly_means)
+    # months = ee.List.sequence(1, 12)
+    # monthly_means = months.map(reduce_months)
+    # monthly_means = ee.ImageCollection.fromImages(monthly_means)
 
-    return monthly_means
+    return ee.ImageCollection.fromImages(ee.List.sequence(1, 12).map(reduce_months))
 
 
 def bitwise_extract(
@@ -132,23 +138,16 @@ def mask_clouds(
         ee.ImageCollection: Masked image collection
     """
 
-    def mask_clouds_(image: ee.Image) -> ee.Image:
+    def _mask_clouds(image: ee.Image) -> ee.Image:
         qa = image.select(qa_band)
         cloud_mask = bitwise_extract(qa, 0, 1).eq(0).Or(bitwise_extract(qa, 0, 1).eq(3))
-        # cloud_mask_unset = bitwise_extract(qa, 0, 1).eq(3)
-        # cloud_shadow_mask = bitwise_extract(qa, 2).eq(0)
-        # cirrus_mask = bitwise_extract(qa, 8, 9).lte(1)
-
-        # mask = (
-        #     cloud_shadow_mask.And(cirrus_mask).And(cloud_mask).Or(cloud_mask_unmarked)
-        # )
         internal_cloud_mask = bitwise_extract(qa, 10).eq(0)
         mask = internal_cloud_mask.And(cloud_mask)
         image_masked = image.updateMask(mask)
 
         return image_masked
 
-    return ic.map(lambda image: mask_clouds_(image))
+    return ic.map(_mask_clouds)
 
 
 def export_image(

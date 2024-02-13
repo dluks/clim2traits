@@ -8,7 +8,7 @@ from pathlib import Path
 
 from osgeo import gdal
 
-RETRY_FAILED = True
+RETRY_FAILED = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,7 +59,6 @@ if not RETRY_FAILED:
         "clay",
         "nitrogen",
         "ocd",
-        "ocs",
         "phh2o",
         "sand",
         "silt",
@@ -67,6 +66,10 @@ if not RETRY_FAILED:
     ]
 
     depths = ["0-5", "5-15", "15-30", "30-60", "60-100", "100-200"]
+
+    ds_other_names = ["ocs"]
+
+    other_depths = ["0-30"]
 
     args = []
     for ds_name in ds_names:
@@ -78,20 +81,29 @@ if not RETRY_FAILED:
             ds_url = f"{ds_name}/{ds_full_label}.vrt"
             full_url = curl_url + base_url + ds_url
             args.append((full_url, out_filepath))
-else:
-    failed = [
-        "ocs_0-30cm_mean",
-    ]
+    for other_ds_name in ds_other_names:
+        for depth in other_depths:
+            ds_full_label = f"{other_ds_name}_{depth}cm_mean"
 
-    args = []
-    for ds_full_label in failed:
-        ds_name = ds_full_label.split("_", maxsplit=1)[0]
+            out_filepath = out_dir / f"{ds_full_label}_0.01_deg.tif"
 
-        out_filepath = out_dir / f"{ds_full_label}_0.01_deg.tif"
+            ds_url = f"{other_ds_name}/{ds_full_label}.vrt"
+            full_url = curl_url + base_url + ds_url
+            args.append((full_url, out_filepath))
+# else:
+#     failed = [
+#         "ocs_0-30cm_mean",
+#     ]
 
-        ds_url = f"{ds_name}/{ds_full_label}.vrt"
-        full_url = curl_url + base_url + ds_url
-        args.append((full_url, out_filepath))
+#     args = []
+#     for ds_full_label in failed:
+#         ds_name = ds_full_label.split("_", maxsplit=1)[0]
+
+#         out_filepath = out_dir / f"{ds_full_label}_0.01_deg.tif"
+
+#         ds_url = f"{ds_name}/{ds_full_label}.vrt"
+#         full_url = curl_url + base_url + ds_url
+#         args.append((full_url, out_filepath))
 
 
 def warp(url, out_fn: Path):

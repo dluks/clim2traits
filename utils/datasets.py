@@ -679,7 +679,7 @@ def resample_file(fpath, params: dict) -> None:
         shift = res / 2
 
         # Generate lat (y) and lon (x) grid and round values to two decimal places
-        y = np.linspace(ymax - shift, ymin + shift, nrows)
+        y = np.linspace(ymin + shift, ymax - shift, nrows)
         x = np.linspace(xmin + shift, xmax - shift, ncols)
 
         # Create the empty DataArray with the desired dimensions and fill with ones
@@ -696,6 +696,9 @@ def resample_file(fpath, params: dict) -> None:
         #     match_raster, masked=True, chunks={"x": 360, "y": 360}
         # )
         ds = ds.rio.reproject_match(target_grid, resampling=resample_alg)
+        # Make coordinate values the exact same due to tiny differences in floating
+        # point precision
+        ds = ds.assign_coords({"x": target_grid.x, "y": target_grid.y})
     else:
         ds = ds.rio.reproject(
             dst_crs="EPSG:4326",

@@ -7,13 +7,15 @@ import re
 import sys
 from functools import reduce
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Generator, Iterator, List, Optional, Tuple, Union
 
+import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import rasterio as rio
 import rioxarray as riox
 import xarray as xr
+from numpy.typing import ArrayLike
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from tqdm import tqdm
@@ -517,11 +519,12 @@ def ds_to_netcdf(
     ds.to_netcdf(out_fn, mode=mode, encoding=encoding)
 
 
-def get_trait_id_from_data_name(data_name: str) -> str:
+def get_trait_id_from_data_name(data_name: str) -> Union[str, None]:
     """Get trait id from data name, e.g. GBIF_TRYgapfilled_X1080_05deg_mean_ln -> 1080"""
-    trait_id = re.search(r"X\d+", data_name).group()
-    trait_id = trait_id.replace("X", "")
-    return trait_id
+    trait_id = re.search(r"X\d+", data_name)
+    if trait_id is not None:
+        return trait_id.group().replace("X", "")
+    return None
 
 
 def get_trait_name_from_trait_id(trait_id: str, short: bool = False) -> str:
@@ -679,3 +682,54 @@ def open_raster(
         raise ValueError("Multiple files found.")
 
     return ds
+
+
+def get_prediction_paths(
+    resolution: Union[int, float], pft: str, trait_idx: Optional[List[int]] = None
+) -> Iterator[Path]:
+    """Get the paths to the predictions for a given resolution and PFT."""
+    if resolution == 0.01:
+        predict_name = (
+            "tiled_5x5_deg_MOD09GA.061_ISRIC_soil_WC_BIO_VODCA_0.01_deg_nan-strat=any_"
+            "thr=0.5"
+        )
+    else:
+        predict_name = (
+            f"MOD09GA.061_ISRIC_soil_WC_BIO_VODCA_{resolution:g}_deg_nan-strat=any_"
+            "thr=0.5"
+        )
+
+    if trait_idx is not None:
+        for p in Path(
+            f"results/predictions/05deg_models/{predict_name}/{pft}"
+        ).iterdir():
+            tid = get_trait_id_from_data_name(p.name)
+            if tid is None:
+                continue
+            if int(tid) in trait_idx:
+                yield p
+    else:
+        return Path(f"results/predictions/05deg_models/{predict_name}/{pft}").glob("*")
+
+
+def test():
+    for trait in tqdm(predicted_traits):
+        if not trait.is_dir():
+            continue
+        gbif_fn = list(Path(trait, "GBIF").glob("*.parq"))[0]
+        splot_fn = list(Path(trait, "sPlot").glob("*.parq"))[0]
+
+        if dask:
+            columns = dd.read_parquet(gbif_fn).columns.values
+            if "AOA" not in columns:
+                continue
+            else:
+                gbif_trait_df = dd.read_parquet(gbif_fn, columns=["AOA"])
+                splot_trait_df = dd.read_parquet(splot_fn, columns=["AOA"])
+        else:
+            columns = pd.read_parquet(gbif_fn).columns.values
+            if "AOA" not in columns:
+                continue
+            else:
+                gbif_trait_df = pd.read_parquet(gbif_fn, columns=["AOA"])
+                splot_trait_df = pd.read_parquet(splot_fn, columns=["AOA"])

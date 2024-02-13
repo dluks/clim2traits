@@ -1,3 +1,5 @@
+from functools import reduce
+
 import ee
 
 from utils import gee
@@ -29,26 +31,36 @@ for band in bands:
 
 tsr_monthly_means = []
 for band_ic in tsr_bands_monthly:
-    tsr_monthly_means.append(gee.aggregate_ic_monthly(band_ic, ds, de))
+    tsr_monthly_means.append(gee.aggregate_ic_monthly(band_ic))
 
-# Combine the five bands into a single image collection
-tsr_monthly_means = (
-    tsr_monthly_means[0]
-    .combine(tsr_monthly_means[1])
-    .combine(tsr_monthly_means[2])
-    .combine(tsr_monthly_means[3])
-    .combine(tsr_monthly_means[4])
+# 1. Combine the five bands into a single image collection
+# 2. Reproject the image collection to EPSG:4326 with a scale of 1km
+# 3. Unmask the image collection and convert to int16 (because NoData values are
+#    replaced with 0 when converting to int16)
+
+final_ic = (
+    # tsr_monthly_means[0]
+    # .combine(tsr_monthly_means[1])
+    # .combine(tsr_monthly_means[2])
+    # .combine(tsr_monthly_means[3])
+    # .combine(tsr_monthly_means[4])
+    # ee.List(tsr_monthly_means).iterate(lambda x, y: x.combine(y), tsr_monthly_means[0])
+    # # This may be the best approach. Casts the list to a FeatureCollection to an IC
+    # ee.ImageCollection(ee.FeatureCollection(tsr_monthly_means).flatten())
+    reduce(lambda x, y: x.combine(y), tsr_monthly_means)  # this probably won't work
+    .map(lambda image: image.reproject(crs="EPSG:4326", crsTransform=None, scale=1000))
+    .map(lambda image: image.unmask(-32768).toInt16())
 )
 
-# Reproject the image collection to EPSG:4326 with a scale of 1km
-tsr_monthly_means = tsr_monthly_means.map(
-    lambda x: x.reproject("EPSG:4326", None, 1000)
-)
+# # Reproject the image collection to EPSG:4326 with a scale of 1km
+# tsr_monthly_means = tsr_monthly_means.map(
+#     lambda x: x.reproject(crs="EPSG:4326", crsTransform=None, scale=1000)
+# )
 
-# Unmask the image collection and convert to int16 (because NoData values are replaced
-# with 0 when converting to int16)
-tsr_monthly_means = tsr_monthly_means.map(lambda x: x.unmask(-32768))
-tsr_monthly_means = tsr_monthly_means.map(lambda x: x.toInt16())
+# # Unmask the image collection and convert to int16 (because NoData values are replaced
+# # with 0 when converting to int16)
+# tsr_monthly_means = tsr_monthly_means.map(lambda x: x.unmask(-32768))
+# tsr_monthly_means = tsr_monthly_means.map(lambda x: x.toInt16())
 
 # Export images to Google Drive
-gee.export_collection(collection=tsr_monthly_means, folder="multiband_monthly_averages")
+gee.export_collection(collection=final_ic, folder="multiband_monthly_averages")

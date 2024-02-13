@@ -3,7 +3,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -14,11 +14,16 @@ import seaborn as sns
 import spacv
 import xarray as xr
 from adjustText import adjust_text
+from cartopy.feature import OCEAN
 from cartopy.mpl.geoaxes import GeoAxes
 from matplotlib.axes import Axes
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import Patch
 from matplotlib.pyplot import colorbar
 from sklearn.neighbors import NearestNeighbors
+from spacv.grid_builder import construct_blocks
+
+from utils.geodata import get_trait_id_from_data_name
 
 os.environ["USE_PYGEOS"] = "0"
 
@@ -49,6 +54,8 @@ def plot_raster_maps(fns: list, ncols: int):
     )
     axes = axes.flatten()
 
+    fig.set_tight_layout(True)
+
     for ax, fn in zip(axes, fns):
         with xr.open_dataset(fn, engine="rasterio") as ds:
             darr = da.from_array(ds.band_data.squeeze(), chunks="auto")
@@ -78,12 +85,19 @@ def plot_raster_maps(fns: list, ncols: int):
             fig.delaxes(axes[-i - 1])
 
 
-def plot_pred_cov(preds: list[xr.Dataset]) -> None:
+def plot_pred_cov(
+    preds: list[xr.Dataset],
+    context: Any = "paper",
+    font_scale: float = 1,
+    out_fn: Optional[os.PathLike] = None,
+    show: bool = True,
+    aoa: bool = False,
+) -> None:
     """Plot trait predictions and their corresonding Coefficient of Variation (CoV)"""
     nrows = len(preds)
     ncols = 2
 
-    _, geo_axes = plt.subplots(
+    fig, geo_axes = plt.subplots(
         nrows=nrows,
         ncols=ncols,
         subplot_kw={"projection": ccrs.PlateCarree()},
@@ -92,43 +106,85 @@ def plot_pred_cov(preds: list[xr.Dataset]) -> None:
         tight_layout=True,
     )
 
-    with open("./trait_id_to_trait_name.json", "r", encoding="utf-8") as f:
+    with open("./trait_mapping.json", "r", encoding="utf-8") as f:
         mapping = json.load(f)
 
     for i, ds in enumerate(preds):
-        trait = list(ds.data_vars)[0]
-        trait_id = trait.split("_")[2]
-        trait_num = trait_id.split("X")[-1]
-        trait_name = f"GBIF TRY-GF: {mapping[trait_num]}"
+        trait = list(ds.data_vars)[-1]
+        if "_ln" in trait:
+            # Back-transform the dataset
+            ds[trait].data = np.exp(ds[trait].values)
+        trait_id = get_trait_id_from_data_name(trait)
+        trait_name = mapping[trait_id]["short"]
+        trait_unit = mapping[trait_id]["unit"]
 
         # Limit vmax of CoV geoaxes if CoV range is > 1
-        cov_max = np.nanmax(ds["CoV"].values)
+        cov_max = np.nanmax(ds["COV"].values)
 
-        vmax = 0.5 if cov_max >= 1 else None
+        vmax = 0.25 if cov_max >= 0.5 else None
 
         geo_axes[i][0] = plot_dataset(
             ds,
             trait,
             AxProps(
                 ax=geo_axes[i][0],
-                title=trait_name,
+                title=f"{trait_name} [{trait_unit}]",
+                # cmap=sns.cubehelix_palette(
+                #     start=2, rot=0, dark=0, light=0.95, as_cmap=True
+                # ),  # type: ignore
+                # cmap=sns.cubehelix_palette(
+                #     start=0.5,
+                #     rot=-0.75,
+                #     dark=0.1,
+                #     light=0.9,
+                #     reverse=False,
+                #     as_cmap=True,
+                # ),
+                # cmap=sns.color_palette("cubehelix", as_cmap=True),
                 cmap=sns.cubehelix_palette(
-                    start=2, rot=0, dark=0, light=0.95, as_cmap=True
-                ),  # type: ignore
+                    start=0, rot=-1.2, dark=0, reverse=True, as_cmap=True
+                ),
             ),
+            context=context,
+            font_scale=font_scale,
         )
+
+        if aoa:
+            geo_axes[i][0] = add_aoa(geo_axes[i][0], trait=ds[trait], aoa=ds["AOA"])
+
+        geo_axes[i][0].set_xlabel("Longitude")
+        geo_axes[i][0].set_ylabel("Latitude")
         geo_axes[i][1] = plot_dataset(
             ds,
-            "CoV",
+            "COV",
             AxProps(
                 ax=geo_axes[i][1],
                 title=f"{trait_name} CoV",
                 vmax=vmax,
+                # vmin=ds["COV"].quantile(0.02),
+                # vmax=ds["COV"].quantile(0.99),
                 cmap=sns.color_palette("Blues", as_cmap=True),  # type: ignore
             ),
+            context=context,
+            font_scale=font_scale,
         )
+        geo_axes[i][0].set_xlabel("Longitude")
 
-    plt.show()
+    # fig.set_figheight(10)
+    # fig.set_figwidth(10 * 2)
+
+    # for ax in np.asarray(geo_axes).flatten():
+    #     ax.set_aspect(1)
+
+    # fig.set_tight_layout(True)
+    plt.subplots_adjust(wspace=10, hspace=20)
+    if out_fn is not None:
+        plt.savefig(out_fn, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 
 @dataclass
@@ -139,11 +195,16 @@ class AxProps:
     title: Optional[str] = None
     proj: ccrs.Projection = ccrs.PlateCarree
     cmap: ListedColormap = sns.color_palette("rocket", as_cmap=True)  # type: ignore
+    vmin: Optional[float] = None
     vmax: Optional[float] = None
 
 
 def plot_dataset(
-    data: Union[xr.Dataset, xr.DataArray], data_name: str, ax_props: AxProps
+    data: Union[xr.Dataset, xr.DataArray],
+    data_name: str,
+    ax_props: AxProps,
+    context: Any = "paper",
+    font_scale: float = 1,
 ) -> Optional[Axes]:
     """
     Quick and dirty plot of a global rasterio data array
@@ -154,41 +215,94 @@ def plot_dataset(
         ax_props (AxProps): Information about the axis to be plotted on
         **kwargs: Additional keyword arguments to be passed to the axis
     """
+    with sns.plotting_context(context, font_scale):
+        if ax_props.ax is None:
+            _, ax = plt.subplots(
+                # figsize=(20, 15),
+                subplot_kw={"projection": ax_props.proj()},
+                tight_layout=True,
+            )
+        else:
+            ax = ax_props.ax
 
-    if ax_props.ax is None:
-        _, ax = plt.subplots(
-            figsize=(20, 15),
-            subplot_kw={"projection": ax_props.proj()},
-            tight_layout=True,
+        if isinstance(data, xr.Dataset):
+            data = data[data_name]
+
+        # lon = data.coords["x"].values
+        # lat = data.coords["y"].values
+        title = ax_props.title if ax_props.title is not None else str(data.name)
+        ax.set_global()  # type: ignore
+        ax.coastlines(resolution="110m", linewidth=0.5)  # type: ignore
+        ax.gridlines(
+            draw_labels=["bottom", "left"], dms=True, x_inline=False, y_inline=False
         )
 
-    if isinstance(data, xr.Dataset):
-        data = data[data_name]
+        data.plot(
+            ax=ax,
+            cmap=ax_props.cmap,
+            transform=ccrs.PlateCarree(),
+            vmin=ax_props.vmin,
+            vmax=ax_props.vmax,
+            cbar_kwargs={
+                "label": "",
+                "shrink": 0.85,
+                "pad": 0.01,
+            },
+        )
 
-    lon = data.coords["x"].values
-    lat = data.coords["y"].values
-    title = title if title is not None else str(data.name)
-    ax.set_global()  # type: ignore
-    ax.coastlines(resolution="110m", linewidth=0.5)  # type: ignore
+        # im = ax.imshow(
+        #     # lon,
+        #     # lat,
+        #     # np.squeeze(data),
+        #     np.squeeze(data),
+        #     cmap=ax_props.cmap,
+        #     transform=ccrs.PlateCarree(),
+        #     vmax=ax_props.vmax,
+        # )
 
-    im = ax.contourf(
-        lon,
-        lat,
-        np.squeeze(data),
-        50,
-        transform=ccrs.PlateCarree(),
-        cmap=ax_props.cmap,
-        vmax=ax_props.vmax,
+        # Set axis background color to very light grey
+        ax.set_facecolor("white")
+
+        # cbar = colorbar(
+        #     im,
+        #     ax=ax,
+        #     orientation="vertical",
+        #     shrink=0.85,
+        #     pad=0.01,
+        # )
+
+        ax.set_title(title, pad=8, fontsize=30)
+
+        ax.set_ylim(-60.0, 90.0)
+
+    return ax
+
+
+def add_aoa(ax: GeoAxes, trait: xr.DataArray, aoa: xr.DataArray) -> GeoAxes:
+    mask = trait.where(aoa.isnull(), np.nan)
+    mask = mask.where(mask.isnull(), 1)
+
+    title = ax.get_title()
+
+    # Make a cmap of one color #d43bff
+    color = "#ff3bb4"
+    cmap = ListedColormap([color])
+
+    mask.plot(ax=ax, transform=ccrs.PlateCarree(), add_colorbar=False, cmap=cmap)
+    ax.add_feature(OCEAN, facecolor="white", zorder=1)
+    ax.coastlines()
+
+    ax.set_title(title, fontsize=30)
+
+    # Add a legend to the plot with a single orange swatch labeled "AOA"
+
+    legend_elements = [Patch(facecolor=color, edgecolor="k", label="AoA")]
+    ax.legend(
+        handles=legend_elements,
+        fontsize=20,
+        loc="lower left",
+        bbox_to_anchor=(0.01, 0.01),
     )
-
-    # Set axis background color to very light grey
-    ax.set_facecolor("#f0f0f0")
-
-    colorbar(im, ax=ax, orientation="vertical", shrink=0.5)
-    ax.set_title(title, fontsize=25)
-
-    ax.set_ylim(-60.0, 90.0)
-
     return ax
 
 
@@ -638,6 +752,9 @@ def plot_hex_density(
     log: bool = False,
     names: Optional[list[str]] = None,
     label_subplots: bool = False,
+    context: Any = "paper",
+    font_scale: float = 1,
+    out_fn: Optional[str] = None,
 ) -> list[GeoAxes]:
     """Plot hex density of the given dataframe(s). Latitude and longitude columns must
     be named "lat" and "lon"."""
@@ -663,11 +780,14 @@ def plot_hex_density(
         nrows = 1
         figsize = (15, 9)
 
-    _, axs = plt.subplots(
+    sns.set_context(context, font_scale=font_scale)
+
+    fig, axs = plt.subplots(
         nrows=nrows,
         ncols=ncols,
         subplot_kw={"projection": ccrs.Robinson()},
         figsize=figsize,
+        dpi=200,
     )
 
     if len(dataframe) > 1:
@@ -702,7 +822,10 @@ def plot_hex_density(
             ax, df["lon"], df["lat"], gridsize=int(360 / resolution), log=log, name=name
         )
 
-    return axs
+    if out_fn is not None:
+        plt.savefig(out_fn, bbox_inches="tight")
+
+    return fig, axs
 
 
 def _hexbin_ax(
@@ -757,3 +880,53 @@ def _nrows_figsize(data_length: int, ncols: int) -> tuple[int, tuple[int, int]]:
         figsize = (5 * ncols, 3 * nrows)
 
     return nrows, figsize
+
+
+def plot_example_hex_grid(
+    gdf: Optional[gpd.GeoDataFrame] = None,
+    radius: float = 7,
+    context: Any = "paper",
+    font_scale: float = 1,
+    out_fn: Optional[os.PathLike] = None,
+) -> None:
+    """Plot an example hex grid"""
+    if gdf is None:
+        # Load sample data
+        gdf = gpd.read_parquet(
+            "data/collections/MOD09GA.061_ISRIC_soil_WC_BIO_VODCA_0.5_deg_nan-strat=any_thr=0.5.parquet"
+        ).reset_index(drop=True)
+
+    # Build the hexgrid
+    hexgrid = construct_blocks(
+        gdf.geometry,
+        tiles_x=int(360 / radius),
+        tiles_y=int(180 / radius),
+        method="optimized_random",
+        n_sims=50,
+        data=gdf[gdf.columns.difference(["geometry"])],
+        n_groups=10,
+        shape="hex",
+    )
+
+    # Plot the hexgrid as a map
+    cmap = ListedColormap(sns.color_palette("deep", 10, as_cmap=True))
+
+    with sns.plotting_context(context, font_scale=font_scale):
+        fig, ax = plt.subplots(1, subplot_kw={"projection": ccrs.Robinson()}, dpi=150)
+        ax.set_global()
+
+        ax = hexgrid.plot(
+            column="grid_id",
+            cmap=cmap,
+            edgecolor="white",
+            ax=ax,
+            transform=ccrs.PlateCarree(),
+            legend=True,
+            legend_kwds={"label": "Spatial K-fold", "pad": 0.02},
+        )
+        ax.coastlines()
+        ax.add_feature(OCEAN, facecolor="white", zorder=1)
+        fig.set_figwidth(20)
+
+        if out_fn is not None:
+            plt.savefig(out_fn, bbox_inches="tight")
